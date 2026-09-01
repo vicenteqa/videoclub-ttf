@@ -19,10 +19,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Una fila de progreso de camino al servidor, con la identidad que los dos aparatos comparten.
+ * A progress row on its way to the server, carrying the identity both devices share.
  *
- * [titleId] viaja también, pero sólo para volver a encontrar la fila local al confirmarla: nunca
- * sale de la máquina.
+ * [titleId] travels too, but only so the local row can be found again when the write is confirmed:
+ * it never leaves this machine.
  */
 @Immutable
 data class PendingProgress(
@@ -36,7 +36,7 @@ data class PendingProgress(
     val titleId: Long
 )
 
-/** Una fila de progreso que llega del servidor, todavía sin traducir a este catálogo. */
+/** A progress row arriving from the server, not yet translated into this catalogue. */
 @Immutable
 data class RemoteProgress(
     val profileId: Int,
@@ -46,15 +46,15 @@ data class RemoteProgress(
     val durationMillis: Long,
     val updatedAtMillis: Long,
     val deleted: Boolean,
-    /** Su sitio en la cuenta de la casa. Es lo que permite parar justo antes de lo que no encaja. */
+    /** Its place in the household ledger. This is what lets a read stop just before what will not fit. */
     val counter: Long
 )
 
 /**
- * Una entrada de «Mi lista» de camino al servidor.
+ * A "My list" entry on its way to the server.
  *
- * La misma forma que [PendingProgress] con un campo menos: guardar algo para después no tiene
- * posición ni episodio, sólo la obra, quién la guardó y cuándo se decidió.
+ * The same shape as [PendingProgress] with one field fewer: saving something for later has no
+ * position and no episode, only the title, who saved it and when that was decided.
  */
 @Immutable
 data class PendingListEntry(
@@ -66,7 +66,7 @@ data class PendingListEntry(
     val titleId: Long
 )
 
-/** Una entrada de «Mi lista» que llega del servidor, todavía sin traducir a este catálogo. */
+/** A "My list" entry arriving from the server, not yet translated into this catalogue. */
 @Immutable
 data class RemoteListEntry(
     val profileId: Int,
@@ -74,7 +74,7 @@ data class RemoteListEntry(
     val updatedAtMillis: Long,
     val addedAtMillis: Long,
     val deleted: Boolean,
-    /** Su sitio en la cuenta de la casa. Es lo que permite parar justo antes de lo que no encaja. */
+    /** Its place in the household ledger. This is what lets a read stop just before what will not fit. */
     val counter: Long
 )
 
@@ -508,7 +508,7 @@ class CatalogStore(context: Context) {
                 put("position_ms", positionMillis)
                 put("duration_ms", durationMillis)
                 put("updated_at", nowMillis)
-                // Pendiente de mandar. Se limpia sólo cuando el servidor confirma que la tiene.
+                // Pending. Cleared only once the server confirms it has the row.
                 put("dirty", 1)
                 put("deleted", 0)
             },
@@ -524,9 +524,9 @@ class CatalogStore(context: Context) {
      * meant by taking it off the list. Playing it again writes a new row and it returns.
      */
     fun forgetProgress(profile: Profile, titleId: Long, nowMillis: Long = System.currentTimeMillis()) {
-        // Marcada, no borrada. Quitar algo de «Seguir viendo» es una decisión que tiene que llegar
-        // al otro aparato de la casa, y una fila que ya no está no se puede contar a nadie. Las
-        // lecturas la filtran, así que en pantalla desaparece igual.
+        // Marked, not deleted. Removing something from "Continue watching" is a decision that has to
+        // reach the household's other device, and a row that is gone can be told to nobody. Reads
+        // filter it out, so it disappears from the screen just the same.
         helper.writableDatabase.execSQL(
             "UPDATE $TABLE_PROGRESS SET deleted = 1, dirty = 1, updated_at = ? " +
                 "WHERE profile = ? AND title_id = ?",
@@ -560,12 +560,12 @@ class CatalogStore(context: Context) {
     }
 
     /**
-     * Guarda o quita una obra de la lista de esa persona.
+     * Saves or removes a title from that person's list.
      *
-     * Quitar no borra la fila, la marca: una fila que ya no está no se puede mandar, y entonces el
-     * aparato de al lado seguiría enseñándola para siempre. `added_at` sólo se toca al guardar,
-     * porque es el orden de la lista; `updated_at` se toca siempre, porque es lo que decide quién
-     * gana cuando dos aparatos discrepan.
+     * Removing marks the row rather than deleting it: a row that is gone cannot be sent, and the
+     * device next door would go on showing it forever. `added_at` is touched only when saving,
+     * because it is the list's order; `updated_at` is touched always, because it is what decides
+     * who wins when two devices disagree.
      */
     fun setInWatchlist(profile: Profile, titleId: Long, inList: Boolean, nowMillis: Long) {
         val db = helper.writableDatabase
@@ -705,10 +705,10 @@ class CatalogStore(context: Context) {
     // ------------------------------------------------------------- el progreso, entre aparatos
 
     /**
-     * Hasta dónde ha leído este aparato la cuenta común de la casa.
+     * How far this device has read the household's shared ledger.
      *
-     * Un número que sólo sube, del servidor y no de aquí: pedir «lo que haya después del 412» es lo
-     * que hace que ponerse al día cueste una respuesta corta y no el historial entero cada vez.
+     * A number that only goes up, and the server's rather than ours: asking for "whatever came after
+     * 412" is what makes catching up cost one short answer instead of the whole history every time.
      */
     var syncCounter: Long
         get() = helper.readableDatabase
@@ -726,15 +726,14 @@ class CatalogStore(context: Context) {
         }
 
     /**
-     * Lo que este aparato ha escrito y todavía no ha conseguido mandar.
+     * What this device has written and has not managed to send yet.
      *
-     * Sale con `merge_key` en vez de con `title_id` porque `title_id` es un número de esta máquina:
-     * lo reparte el `AUTOINCREMENT` según el orden en que llegan los listados del proveedor, así
-     * que el 4711 de aquí y el de la tablet son películas distintas. `merge_key` es lo que las dos
-     * calculan igual.
+     * It leaves with `merge_key` rather than `title_id` because `title_id` is a number local to this
+     * machine: `AUTOINCREMENT` hands it out in whatever order the supplier's listings arrive, so
+     * 4711 here and 4711 on the tablet are different films. `merge_key` is what both compute alike.
      *
-     * Una fila cuyo título ya no está en el catálogo no se puede traducir y se queda esperando: no
-     * se pierde, y en cuanto una sincronización del catálogo lo devuelva, sale.
+     * A row whose title is no longer in the catalogue cannot be translated and waits instead: it is
+     * not lost, and the moment a catalogue sync brings that title back, it goes out.
      */
     fun pendingProgress(limit: Int): List<PendingProgress> =
         helper.readableDatabase.rawQuery(
@@ -765,11 +764,11 @@ class CatalogStore(context: Context) {
         }
 
     /**
-     * Da por mandado lo que el servidor ha aceptado.
+     * Marks as sent what the server accepted.
      *
-     * La condición sobre `updated_at` es lo que hace que esto sea seguro mientras alguien está
-     * viendo algo: si la posición ha avanzado entre que se mandó y que se confirmó, la fila sigue
-     * sucia y se manda otra vez. Sin ella, ese avance se quedaría sólo en este aparato.
+     * The condition on `updated_at` is what makes this safe while somebody is watching: if the
+     * position moved on between sending and confirming, the row stays dirty and is sent again.
+     * Without it, that progress would stay on this device alone.
      */
     fun markProgressSynced(rows: List<PendingProgress>) {
         if (rows.isEmpty()) return
@@ -790,15 +789,15 @@ class CatalogStore(context: Context) {
     }
 
     /**
-     * Escribe lo que han visto los demás aparatos de la casa.
+     * Writes what the household's other devices have watched.
      *
-     * Devuelve las obras que no ha sabido colocar: `merge_key` que este catálogo todavía no tiene,
-     * casi siempre porque la primera sincronización del catálogo no ha terminado. Quien llama las
-     * usa para no dar por leída esa parte de la cuenta y volver a pedirla más tarde, que es la
-     * diferencia entre «todavía no» y perderlo.
+     * Returns the titles it could not place: `merge_key`s this catalogue does not hold yet, almost
+     * always because the first catalogue sync has not finished. The caller uses them to avoid
+     * marking that stretch of the ledger as read and to ask for it again later, which is the
+     * difference between "not yet" and losing it.
      *
-     * Gana la marca más reciente, igual que en el servidor: no la más avanzada. Si ganara la más
-     * avanzada, volver a ver algo desde el principio sería imposible.
+     * The most recent stamp wins, exactly as on the server: not the furthest along. If the furthest
+     * along won, starting something again from the beginning would be impossible.
      */
     fun applyRemoteProgress(rows: List<RemoteProgress>): List<String> {
         if (rows.isEmpty()) return emptyList()
@@ -831,7 +830,7 @@ class CatalogStore(context: Context) {
                         put("position_ms", row.positionMillis)
                         put("duration_ms", row.durationMillis)
                         put("updated_at", row.updatedAtMillis)
-                        // Viene del servidor: ya está allí, no hay nada que mandar.
+                        // It came from the server: it is already there, nothing to send.
                         put("dirty", 0)
                         put("deleted", if (row.deleted) 1 else 0)
                     },
@@ -846,11 +845,11 @@ class CatalogStore(context: Context) {
     }
 
     /**
-     * Lo que este aparato ha guardado o quitado de «Mi lista» y todavía no ha conseguido mandar.
+     * What this device has added to or removed from "My list" and has not managed to send yet.
      *
-     * Igual que [pendingProgress], y por lo mismo: sale con `merge_key`, porque `title_id` es un
-     * número de esta máquina. Una fila cuyo título ya no está en el catálogo se queda esperando en
-     * vez de perderse.
+     * Same as [pendingProgress], and for the same reason: it leaves with `merge_key`, because
+     * `title_id` is a number local to this machine. A row whose title is no longer in the catalogue
+     * waits instead of being lost.
      */
     fun pendingWatchlist(limit: Int): List<PendingListEntry> =
         helper.readableDatabase.rawQuery(
@@ -878,11 +877,10 @@ class CatalogStore(context: Context) {
         }
 
     /**
-     * Da por mandado lo que el servidor ha aceptado.
+     * Marks as sent what the server accepted.
      *
-     * La condición sobre `updated_at` hace lo mismo que en [markProgressSynced]: si alguien ha
-     * vuelto a tocar esa obra entre que se mandó y que se confirmó, la fila sigue sucia y se manda
-     * otra vez.
+     * The condition on `updated_at` does the same as in [markProgressSynced]: if somebody touched
+     * that title again between sending and confirming, the row stays dirty and is sent once more.
      */
     fun markWatchlistSynced(rows: List<PendingListEntry>) {
         if (rows.isEmpty()) return
@@ -903,10 +901,10 @@ class CatalogStore(context: Context) {
     }
 
     /**
-     * Escribe lo que han guardado o quitado los demás aparatos de la casa.
+     * Writes what the household's other devices have added or removed.
      *
-     * Devuelve las obras que no ha sabido colocar, igual que [applyRemoteProgress] y para lo mismo:
-     * que «todavía no» no se convierta en «perdido».
+     * Returns the titles it could not place, exactly as [applyRemoteProgress] does and for the same
+     * reason: so that "not yet" does not turn into "lost".
      */
     fun applyRemoteWatchlist(rows: List<RemoteListEntry>): List<String> {
         if (rows.isEmpty()) return emptyList()
@@ -934,7 +932,7 @@ class CatalogStore(context: Context) {
                         put("title_id", titleId)
                         put("added_at", row.addedAtMillis)
                         put("updated_at", row.updatedAtMillis)
-                        // Viene del servidor: ya está allí, no hay nada que mandar.
+                        // It came from the server: it is already there, nothing to send.
                         put("dirty", 0)
                         put("deleted", if (row.deleted) 1 else 0)
                     },

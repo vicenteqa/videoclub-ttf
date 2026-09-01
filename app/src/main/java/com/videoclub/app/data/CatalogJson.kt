@@ -192,15 +192,15 @@ object CatalogJson {
     }
 
     /**
-     * Si la cuenta tiene ya todas sus conexiones en uso, según ella misma.
+     * Whether the account already has all of its connections in use, according to itself.
      *
-     * Devuelve null cuando el documento no contesta a la pregunta: un proveedor que no publica
-     * `max_connections`, o que lo publica a cero —que en algunos significa «sin límite»— no está
-     * diciendo que la cuenta esté llena, está diciendo que no lo sabemos.
+     * Returns null when the document does not answer the question: a supplier that does not publish
+     * `max_connections`, or publishes it as zero — which on some means "no limit" — is not saying
+     * the account is full, it is saying we do not know.
      *
-     * Los dos números vienen **como cadenas** en este proveedor (`"active_cons": "0"`), así que se
-     * leen con `optString` y se convierten a mano: `optInt` sobre un campo ausente daría 0, que aquí
-     * se confundiría con «ninguna conexión abierta».
+     * Both numbers arrive **as strings** from this supplier (`"active_cons": "0"`), so they are read
+     * with `optString` and converted by hand: `optInt` on a missing field would give 0, which here
+     * would be mistaken for "no connections open".
      */
     fun accountIsFull(body: String): Boolean? {
         val info = runCatching { JSONObject(body).optJSONObject("user_info") }.getOrNull() ?: return null

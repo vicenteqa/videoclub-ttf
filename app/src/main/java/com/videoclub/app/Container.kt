@@ -43,9 +43,9 @@ class Container(context: Context) {
     private val appContext = context.applicationContext
 
     init {
-        // Si a este aparato le han instalado el APK de otra casa encima, lo que hay en disco es de
-        // la casa anterior. Va aquí arriba, y no en un `init` al final, porque tiene que ocurrir
-        // antes de que `store` y `settings` abran esos mismos ficheros.
+        // If this device has had another household's APK installed over the top, what is on disk
+        // belongs to the previous household. This goes up here rather than in an `init` at the end
+        // because it has to happen before `store` and `settings` open those same files.
         wipeIfHouseholdChanged(appContext, BuildConfig.REMOTE_CONFIG_URL.trim())
     }
 
@@ -88,19 +88,19 @@ class Container(context: Context) {
     val catalog = CatalogRepository(store, client, CatalogSync(client, store), scope)
 
     /**
-     * Le cuenta al panel qué se está viendo. Calla del todo si el documento no trae a dónde.
+     * Tells the panel what is being watched. Says nothing at all if the document carries no address.
      *
-     * Quién decide que algo «se está viendo» no es esto: es [ui.MainViewModel], que es el único que
-     * sabe cuánto lleva puesto y si es película o serie.
+     * What counts as "being watched" is not decided here: that is [ui.MainViewModel], the only thing
+     * that knows how long something has been on and whether it is a film or an episode.
      */
     val reporter = WatchReporter(http, scope, settings)
 
     /**
-     * El «Seguir viendo» de la casa, igual en todos sus aparatos.
+     * The household's "Continue watching", the same on every one of its devices.
      *
-     * Se le pide una vuelta al arrancar, al volver del fondo y cada vez que alguien ve algo. Nada
-     * espera por él: lo que dibuja la pantalla sale de SQLite, y esto es un recado de fondo que
-     * pone esa base al día.
+     * A round is asked for at launch, on returning to the foreground, and whenever somebody watches
+     * something. Nothing waits on it: what the screen draws comes out of SQLite, and this is a
+     * background errand that brings that database up to date.
      */
     val progressSync = ProgressSync(http, scope, store, settings) { catalog.reload() }
 
@@ -137,11 +137,11 @@ class Container(context: Context) {
     private val _screenOn = MutableStateFlow(true)
 
     /**
-     * Si hay una tele encendida delante del aparato, según [ScreenWatch].
+     * Whether there is a television switched on in front of this box, as far as [ScreenWatch] knows.
      *
-     * Empieza en `true` porque no hay evidencia todavía en absoluto de lo contrario, y lo que
-     * cuesta arrancar creyendo que hay pantalla es nada: [ScreenWatch] informa del estado real en
-     * cuanto arranca, incluso si es el mismo `true`.
+     * It starts at `true` because there is no evidence whatsoever to the contrary yet, and starting
+     * out believing there is a screen costs nothing: [ScreenWatch] reports the real state the moment
+     * it starts, even when that state is the same `true`.
      */
     val screenOn: StateFlow<Boolean> = _screenOn.asStateFlow()
 
@@ -153,31 +153,32 @@ class Container(context: Context) {
     private val _tuneTo = MutableStateFlow<String?>(null)
 
     /**
-     * El canal que el panel ha mandado poner, hasta que alguien lo atienda.
+     * The channel the panel has asked for, until somebody attends to it.
      *
-     * Lo consume la pantalla de televisión, que es la única que sabe sintonizar; aquí sólo se decide
-     * **si una orden cuenta**, que es lo que no puede vivir en la interfaz.
+     * The television screen consumes it, being the only thing that knows how to tune; all that is
+     * decided here is **whether an order counts**, which is what cannot live in the interface.
      */
     val tuneTo: StateFlow<String?> = _tuneTo.asStateFlow()
 
-    /** Llamado por quien la haya atendido, para que no vuelva a sonar. */
+    /** Called by whoever attended to it, so that it does not ring again. */
     fun tuneHandled() {
         _tuneTo.value = null
     }
 
     /**
-     * Decide si el recado que trae el documento hay que obedecerlo.
+     * Decides whether the errand the document carries should be obeyed.
      *
-     * Dos filtros, y los dos hacen falta. **Que no se haya obedecido ya**: el documento sigue
-     * trayendo la orden después de cumplirla, así que sin la marca en disco la caja saltaría al
-     * canal en cada consulta. Y **que sea de ahora**: una orden de anoche no debe cumplirse cuando
-     * alguien encienda la tele por la mañana — quien la mandó quería que se viera un partido que
-     * hace horas que acabó.
+     * Two filters, and both are needed. **That it has not been obeyed already**: the document goes
+     * on carrying the order after it has been carried out, so without the mark on disk the box would
+     * jump to that channel on every check. And **that it is from now**: last night's order must not
+     * be carried out when somebody switches the television on in the morning — whoever sent it
+     * wanted a match watched that finished hours ago.
      */
     private fun considerTuneOrder(nowMillis: Long) {
         val order = settings.tuneOrder ?: return
-        // `liveStore` y no `store`: esto es estado de la televisión, y se toca sólo cuando hay una
-        // orden de verdad, así que no adelanta la construcción perezosa de la sección por nada.
+        // `liveStore` rather than `store`: this is television state, and it is touched only when
+        // there is a real order, so it never brings the section's lazy construction forward for
+        // nothing.
         if (order.issuedAt <= liveStore.obeyedTuneAt) return
         val ageSeconds = nowMillis / 1000 - order.issuedAt
         if (ageSeconds > TUNE_ORDER_MAX_AGE_SECONDS) return
@@ -206,10 +207,10 @@ class Container(context: Context) {
             }
 
             _startup.value = Startup.Ready
-            // Una casa «simple» nunca enseña el videoclub: ni el catálogo —novecientas peticiones y
-            // un par de minutos de CPU— ni el «Seguir viendo», que no tiene pantalla donde salir ni
-            // nada que lo escriba. Lo que sí sigue hablando con el panel es [reporter], que es cómo
-            // se sabe qué canal hay puesto.
+            // A "simple" household never shows the video shop: not the catalogue — nine hundred
+            // requests and a couple of minutes of CPU — and not "Continue watching" either, which
+            // has no screen to appear on and nothing writing to it. What does go on talking to the
+            // panel is [reporter], which is how anyone knows which channel is on.
             if (!provider.simple) {
                 progressSync.request()
                 // A catalogue belongs to the account it was fetched with. When that account moves,
@@ -224,10 +225,10 @@ class Container(context: Context) {
     /**
      * Relee el documento cada pocos minutos mientras alguien tiene la app delante.
      *
-     * Lo arranca y lo para la actividad, con su ciclo de vida: preguntar con la pantalla apagada
-     * sería gastar batería para enterarse de recados que nadie va a ver. Es un `while` y no un
-     * planificador del sistema porque no tiene que sobrevivir a la app — cuando la app no está,
-     * esto no sirve para nada.
+     * The activity starts and stops it, with its lifecycle: asking with the screen off would spend
+     * battery learning about errands nobody is going to see. It is a `while` rather than a system
+     * scheduler because it does not have to outlive the app — when the app is gone, this is good
+     * for nothing.
      */
     fun startPolling() {
         if (pollJob?.isActive == true) return
@@ -261,16 +262,16 @@ class Container(context: Context) {
             try {
                 val moved = fetchAndApply()
                 catalog.adoptProfiles(settings.profiles)
-                // Lo primero que se mira del documento recién traído: es a lo que se le pide que
-                // llegue pronto, y no depende de que nada más haya cambiado.
+                // The first thing looked at in the freshly fetched document: it is the part that is
+                // asked to arrive quickly, and it does not depend on anything else having changed.
                 considerTuneOrder(nowMillis)
                 // De vuelta al primer plano: puede haberse visto algo en otro aparato mientras
-                // tanto, y eso vale igual aunque el documento de la casa no se haya movido. En una
-                // casa simple no, que ahí no hay «Seguir viendo» que poner al día.
+                // meanwhile, and that counts even if the household's document has not moved. Not in
+                // a simple household: there is no "Continue watching" there to bring up to date.
                 if (!provider.simple) progressSync.request()
                 if (!moved) return@launch
                 // El documento ha cambiado y puede ser otra casa: lo informado antes no describe a
-                // ésta, así que lo siguiente que se vea se manda aunque se repita.
+                // this one, so whatever is watched next is sent even if it repeats.
                 reporter.forget()
                 if (!provider.isConfigured) {
                     _startup.value = Startup.NoCredentials
@@ -317,19 +318,20 @@ class Container(context: Context) {
         const val NO_CREDENTIALS_RETRY_MS = 10_000L
 
         /**
-         * Cuánto vale un «pon este canal» antes de caducar.
+         * How long a "tune to this channel" is good for before it expires.
          *
-         * Diez minutos es más que suficiente para que la caja se entere —se consulta cada dos— y lo
-         * bastante poco como para que nada de anoche se cumpla esta mañana.
+         * Ten minutes is more than enough for the box to find out — it checks every two — and little
+         * enough that nothing from last night is carried out this morning.
          */
         const val TUNE_ORDER_MAX_AGE_SECONDS = 10 * 60L
 
         /**
-         * Cada cuánto se relee el documento mientras la app está delante.
+         * How often the document is re-read while the app is in the foreground.
          *
-         * Sin esto, un aparato encendido y reproduciendo no vuelve a mirar el documento nunca —sólo
-         * lo hace al arrancar y al encenderse la tele— que es justo el momento en el que a alguien
-         * le interesa mandarle un canal. Son unos cientos de bytes: al lado de un stream, nada.
+         * Without this, a device that is on and playing never looks at the document again — it only
+         * does so at launch and when the television is switched on — which is precisely the moment
+         * somebody would want to send it a channel. It is a few hundred bytes: next to a stream,
+         * nothing.
          */
         const val FOREGROUND_POLL_MS = 2 * 60 * 1000L
     }

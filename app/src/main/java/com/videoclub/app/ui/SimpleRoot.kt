@@ -12,17 +12,17 @@ import com.videoclub.app.Container
 import com.videoclub.app.R
 
 /**
- * El modo «simple»: sólo la tele en directo, sin videoclub, sin pestañas y sin selector de
- * personas — la experiencia que tenía SimpleTV, dentro de este proyecto.
+ * "Simple" mode: live television only, no video shop, no tabs and no profile picker — the
+ * experience SimpleTV used to give, inside this project.
  *
- * La app arranca sintonizando y no dice nada más: ni saludo ni cartel. [LiveScreen] es autocontenida
- * y no sabe nada de este modo, así que esto es sólo la envoltura.
+ * The app starts already tuning in and says nothing else: no greeting, no banner. [LiveScreen] is
+ * self-contained and knows nothing about this mode, so this is only the wrapper.
  *
- * Y es lo único que decide qué significa salir. Con el mando, [LiveScreen] pide dos Atrás para
- * llegar hasta [onExit]: el primero abre la lista de canales y el segundo se va. En el videoclub
- * normal eso basta, porque «irse» ahí sólo cambia de pantalla. Aquí cierra la app entera, así que
- * ese segundo Atrás no la cierra: abre esta confirmación, con el mismo `OverlayMenu` que usa el
- * resto de la app para lo mismo.
+ * And it is the only thing that decides what leaving means. With a remote, [LiveScreen] takes two
+ * Backs to reach [onExit]: the first opens the channel list and the second leaves. In the normal
+ * video shop that is enough, because "leaving" there only changes screen. Here it closes the whole
+ * app, so that second Back does not close it: it opens this confirmation, with the same
+ * `OverlayMenu` the rest of the app uses for the same thing.
  */
 @Composable
 fun SimpleRoot(container: Container, onExit: () -> Unit, modifier: Modifier = Modifier) {

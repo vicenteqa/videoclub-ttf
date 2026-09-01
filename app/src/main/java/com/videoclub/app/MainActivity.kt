@@ -42,9 +42,9 @@ class MainActivity : ComponentActivity() {
         get() = (application as VideoclubApp).container.deviceProfile
 
     /**
-     * La tele, más allá de la app. Vale para los dos modos, no sólo para el simple: apagar la tele
-     * con su propio mando no llama a `onStop` de esta actividad, y sin esto el aparato se queda
-     * reproduciendo toda la noche a una habitación a oscuras.
+     * The television, beyond the app. It matters in both modes and not only in simple: switching
+     * the television off with its own remote does not call this activity's `onStop`, and without
+     * this the box goes on playing all night to a dark room.
      */
     private val screenWatch by lazy {
         val container = (application as VideoclubApp).container
@@ -86,12 +86,12 @@ class MainActivity : ComponentActivity() {
             // dialog) whichever mode draws it, so the theme wraps both branches rather than only
             // the videoclub one.
             VideoclubTheme(profile = container.deviceProfile, widthDp = widthDp) {
-                // El modo se decide una vez —de ahí el `remember`, que sobrevive a las recomposiciones
-                // y hace que «al arrancar» sea cierto y no una promesa— pero no antes de tiempo: en un
-                // aparato recién instalado el caché todavía no dice de qué casa es, así que leerlo en
-                // `onCreate` daría videoclub a una casa simple hasta el siguiente arranque. Se espera a
-                // que el contenedor sepa de quién es la tele, que es la misma espera que ya paga
-                // `VideoclubRoot`.
+                // The mode is decided once — hence the `remember`, which survives recompositions
+                // and makes "at startup" true rather than a promise — but not before its time: on a
+                // freshly installed device the cache does not know which household it belongs to
+                // yet, so reading it in `onCreate` would give a simple household the video shop
+                // until the next launch. It waits until the container knows whose television this
+                // is, which is the same wait `VideoclubRoot` already pays.
                 val startup by container.startup.collectAsState()
                 var simple by remember { mutableStateOf<Boolean?>(null) }
                 if (simple == null && startup != Startup.Checking) {
@@ -130,8 +130,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         screenWatch.start()
-        // Releer el documento mientras se está viendo algo es lo que permite mandarle un canal a una
-        // casa desde el panel: encendida y reproduciendo, la app no volvía a mirarlo nunca.
+        // Re-reading the document while something is playing is what makes it possible to send a
+        // household a channel from the panel: switched on and playing, the app never looked at it
+        // again.
         (application as VideoclubApp).container.startPolling()
     }
 

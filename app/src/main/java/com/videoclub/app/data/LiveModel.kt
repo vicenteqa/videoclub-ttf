@@ -25,43 +25,44 @@ data class Feed(
     val epgChannelId: String?,
     val logoUrl: String?,
     /**
-     * La dirección del stream, cuando no la construye el proveedor.
+     * The stream's address, when the supplier is not the one building it.
      *
-     * Nula en todo lo que llega del catálogo Xtream, que es lo normal: ahí la dirección se arma con
-     * [streamId] y las credenciales de la casa. La traen puesta los canales que salen del documento
-     * alojado — ver [ExtraChannel]—, que son una URL y nada más.
+     * Null for everything arriving from the Xtream catalogue, which is the normal case: there the
+     * address is assembled from [streamId] and the household's credentials. Channels coming from the
+     * hosted document carry it already set — see [ExtraChannel] — being a URL and nothing else.
      */
     val url: String? = null,
     /**
-     * El `User-Agent` con el que pedir *este* stream, cuando el de la casa no sirve.
+     * The `User-Agent` to ask for *this* stream with, when the household's own will not do.
      *
-     * El de la casa es el que exige el proveedor IPTV y no se puede cambiar sin romperlo. Pero una
-     * televisión local sirve su directo desde su propia CDN, que a menudo rechaza cualquier
-     * `User-Agent` que no le suene a navegador. Son dos servidores distintos con dos exigencias
-     * incompatibles, así que la cabecera no puede ser una sola para toda la app.
+     * The household's is the one the IPTV supplier demands and cannot be changed without breaking
+     * it. But a local television station serves its live feed from its own CDN, which often rejects
+     * any `User-Agent` that does not look like a browser. Two different servers with two
+     * incompatible demands, so the header cannot be a single one for the whole app.
      */
     val userAgent: String? = null
 )
 
 /**
- * «Pon este canal», dicho desde el panel.
+ * "Tune to this channel", said from the panel.
  *
- * Existe para una situación muy concreta: a alguien de la casa se le pasa que juega su equipo, y
- * quien lleva el panel puede ponérselo desde fuera. No es configuración, es un recado — y por eso
- * lleva [issuedAt]: sin él, la caja volvería a saltar a ese canal cada vez que releyera el
- * documento, para siempre. Con él, una orden se obedece **una vez** y caduca sola.
+ * It exists for one very specific situation: somebody in the household forgets their team is
+ * playing, and whoever runs the panel can put it on for them from outside. It is not configuration,
+ * it is an errand — hence [issuedAt]: without it the box would jump back to that channel every time
+ * it re-read the document, forever. With it, an order is obeyed **once** and expires on its own.
  */
 data class TuneOrder(val label: String, val issuedAt: Long)
 
 /**
- * Un canal que no está en el proveedor y lo pone la casa: una televisión local, normalmente.
+ * A channel the supplier does not carry, added by the household: usually a local station.
  *
- * Vive en el documento alojado y no compilado en el APK, por lo mismo que el resto: se añade uno
- * desde el panel sin recompilar ni volver a la casa. Es deliberadamente pobre —un nombre, una URL y
- * dos adornos— porque no pasa por la curación: lo que se escribe es exactamente lo que se ve.
+ * It lives in the hosted document rather than compiled into the APK, for the same reason as
+ * everything else: one can be added from the panel without rebuilding or going back to the house.
+ * It is deliberately poor — a name, a URL and two trimmings — because it does not go through
+ * curation: what is written is exactly what is seen.
  *
- * No trae guía: `epgChannelId` va nulo y la barra de información se queda sin programa, que es
- * mejor que inventarse uno.
+ * It carries no guide: `epgChannelId` is null and the information bar is left without a programme,
+ * which beats inventing one.
  */
 data class ExtraChannel(
     val name: String,
@@ -70,8 +71,9 @@ data class ExtraChannel(
     val userAgent: String? = null
 ) {
     /**
-     * [position] sólo sirve para darle un `streamId` que no choque con los del proveedor, que son
-     * siempre positivos. Nada lo usa para pedir nada — estos canales se piden por [Feed.url].
+     * [position] serves only to give it a `streamId` that will not collide with the supplier's,
+     * which are always positive. Nothing uses it to request anything — these channels are requested
+     * through [Feed.url].
      */
     fun toChannel(position: Int): Channel = Channel(
         label = name,

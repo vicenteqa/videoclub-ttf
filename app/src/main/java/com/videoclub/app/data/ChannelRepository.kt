@@ -33,8 +33,8 @@ class ChannelRepository(
     private val client: VodClient,
     private val scope: CoroutineScope,
     /**
-     * Los canales que añade la casa, leídos en cada uso y no capturados una vez: el documento
-     * alojado puede adoptarse a mitad de sesión y esto tiene que ir detrás.
+     * The channels the household adds, read on every use rather than captured once: the hosted
+     * document can be adopted mid-session and this has to follow it.
      */
     private val extras: () -> List<ExtraChannel> = { emptyList() }
 ) {
@@ -114,19 +114,20 @@ class ChannelRepository(
             return RefreshState.NotThisLineup
         }
 
-        // Se guarda lo curado y sólo lo curado: los canales de la casa viven en el documento
-        // alojado, y meterlos en esta caché sería una segunda copia que se queda vieja sola.
+        // What is stored is the curated list and only the curated list: the household's own
+        // channels live in the hosted document, and putting them in this cache would be a second
+        // copy that goes stale on its own.
         store.write(curated, nowMillis)
         _channels.value = withExtras(curated)
         return RefreshState.Done(curated.size)
     }
 
     /**
-     * Los del proveedor primero y los de la casa al final, nunca al revés.
+     * The supplier's first and the household's at the end, never the other way round.
      *
-     * Ir delante los pondría de canal por defecto —[initialChannel] cae en el primero de la lista
-     * cuando no hay ninguno recordado— y una casa que añade su televisión local no está pidiendo
-     * que la app arranque siempre en ella.
+     * Going first would make them the default channel — [initialChannel] falls to the first row when
+     * none is remembered — and a household adding its local station is not asking for the app to
+     * always start there.
      */
     private fun withExtras(curated: List<Channel>): List<Channel> {
         val added = extras()

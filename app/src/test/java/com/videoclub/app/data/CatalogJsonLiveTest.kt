@@ -116,9 +116,9 @@ class CatalogJsonLiveTest {
         assertThat(CatalogJson.shortEpg("", ::decode)).isEmpty()
     }
 
-    // --- conexiones de la cuenta ---------------------------------------------------------------
+    // --- the account's connections -------------------------------------------------------------
 
-    /** Tal y como lo manda este proveedor: los dos números, entrecomillados. */
+    /** Exactly as this supplier sends it: both numbers, quoted. */
     private fun account(active: String, allowed: String) =
         """{"user_info": {"active_cons": "$active", "max_connections": "$allowed"}}"""
 
@@ -142,9 +142,9 @@ class CatalogJsonLiveTest {
     }
 
     /**
-     * Los tres «no se sabe», que no son «no»: sin el dato, con un límite de cero —que en algunos
-     * proveedores significa «sin límite»— o con una respuesta que no es el documento esperado, la
-     * app no debe acusar a nadie de estar usando la cuenta.
+     * The three "not known" cases, none of which is a "no": with the figure missing, with a limit
+     * of zero — which on some suppliers means "no limit" — or with an answer that is not the
+     * expected document, the app must not accuse anybody of using the account.
      */
     @Test
     fun `an answer that does not say is not a no`() {

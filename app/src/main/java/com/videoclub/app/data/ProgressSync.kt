@@ -74,7 +74,7 @@ class ProgressSync(
                     .onFailure { error ->
                         // The class and not the message: the message carries the URL, and these get
                         // read out loud down a telephone.
-                        Log.w(TAG, "No se pudo sincronizar el progreso (${error.javaClass.simpleName})")
+                        Log.w(TAG, "Could not sync progress (${error.javaClass.simpleName})")
                     }
             } finally {
                 running.unlock()
@@ -104,7 +104,7 @@ class ProgressSync(
 
         val answer = http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                Log.w(TAG, "El servidor rechazó la sincronización (${response.code})")
+                Log.w(TAG, "The server refused the sync (${response.code})")
                 return
             }
             JSONObject(response.body?.string().orEmpty())
@@ -152,8 +152,8 @@ class ProgressSync(
     }
 
     /**
-     * Hasta dónde se puede dar por leído un libro: el contador de la última fila anterior a la
-     * primera que no se supo colocar, o todo lo que el servidor ofrece si se colocaron todas.
+     * How far a ledger can be treated as read: the counter of the last row before the first one
+     * that could not be placed, or everything the server offers if all of them were placed.
      */
     private fun limitOf(
         rows: List<Pair<String, Long>>,
@@ -174,7 +174,7 @@ class ProgressSync(
         if (deleted) put("borrado", true)
     }
 
-    /** Igual que [rows], y con el mismo criterio: una fila ilegible se cae, la tanda no. */
+    /** Same as [rows], and by the same rule: an unreadable row drops, the batch does not. */
     private fun JSONArray?.listRows(): List<RemoteListEntry> {
         val array = this ?: return emptyList()
         return (0 until array.length()).mapNotNull { index ->
@@ -186,8 +186,9 @@ class ProgressSync(
                 profileId = row.optInt("perfil", -1).takeIf { it >= 0 } ?: return@mapNotNull null,
                 mergeKey = key,
                 updatedAtMillis = changed,
-                // Una entrada sin fecha de guardado se ordena por cuándo se decidió, que es lo más
-                // parecido que hay. Nunca queda en cero, que la mandaría al final de la lista.
+                // An entry with no saved-at date is ordered by when it was decided, which is the
+                // closest thing there is. It never ends up at zero, which would send it to the
+                // bottom of the list.
                 addedAtMillis = row.optLong("guardado_en", 0).takeIf { it > 0 } ?: changed,
                 deleted = row.optBoolean("borrado", false),
                 counter = row.optLong("contador", 0)

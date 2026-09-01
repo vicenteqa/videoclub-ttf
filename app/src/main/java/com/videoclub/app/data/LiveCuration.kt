@@ -109,13 +109,13 @@ object LiveCuration {
             )
         ),
         Block(
-            // Bloque propio y no dentro de «Catalunya»: comparten lengua, no comunidad, y los
-            // bloques de aquí agrupan por territorio — igual que «Andalucía» está aparte.
+            // Its own block rather than sitting inside "Catalunya": they share a language, not a
+            // region, and the blocks here group by territory — just as "Andalucía" is separate.
             name = "Comunitat Valenciana",
             heights = STANDARD_HEIGHTS,
             entries = listOf(
-                // El proveedor la escribe «À Punt»; la tokenización quita el acento antes de
-                // comparar, así que el alias va en ASCII a propósito.
+                // The supplier writes it "À Punt"; tokenising strips the accent before comparing,
+                // so the alias is deliberately ASCII.
                 Entry("À Punt", "a punt", "apunt")
             )
         ),
@@ -140,10 +140,10 @@ object LiveCuration {
             entries = listOf(
                 Entry("Discovery", "discovery"),
                 Entry("National Geographic", "natgeo"),
-                // Un alias basta para las dos grafías: el pegamento ya convierte tanto
-                // «National Geographic» como «Nat Geo» en `natgeo` antes de comparar. Y no le roba
-                // nada a la fila de arriba, porque una regla sólo se lleva un nombre si *todas* sus
-                // palabras están en el alias: «wild» sobra allí, así que allí no encaja.
+                // One alias covers both spellings: the glue already turns "National Geographic"
+                // and "Nat Geo" alike into `natgeo` before comparing. And it steals nothing from the
+                // row above, because a rule only claims a name when *all* of that name's words are
+                // in the alias: "wild" is left over there, so it does not fit there.
                 Entry("Nat Geo Wild", "natgeo wild"),
                 Entry("Historia", "historia", "history"),
                 Entry("Odisea", "odisea"),

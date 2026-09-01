@@ -191,17 +191,17 @@ fun LiveScreen(
     // Daily, and only when it is actually stale. On a warm start this decides to do nothing.
     LaunchedEffect(Unit) { container.liveChannels.refreshIfStale(System.currentTimeMillis()) }
 
-    // Qué canales tiene esta casa, para que el panel pueda ofrecerlos en un desplegable. Se manda
-    // desde aquí y no desde el contenedor porque la sección de televisión se construye la primera
-    // vez que alguien la abre: antes de eso no hay lista que contar.
+    // Which channels this household has, so the panel can offer them in a dropdown. It is sent from
+    // here rather than from the container because the television section is built the first time
+    // somebody opens it: before that there is no list to tell anyone about.
     LaunchedEffect(channels) {
         container.reporter.lineup(channels.map { it.label })
     }
 
-    // El panel ha mandado poner un canal. Que la orden merezca obedecerse ya lo decidió el
-    // contenedor; aquí sólo se busca la fila y se sintoniza. Un rótulo que esta casa no tiene se
-    // descarta en silencio: el canal se mandó desde otro sitio y nadie está mirando esta pantalla
-    // esperando un mensaje de error.
+    // The panel has asked for a channel. Whether the order deserves obeying was already decided by
+    // the container; all that happens here is finding the row and tuning it. A label this household
+    // does not have is dropped silently: the channel was sent from somewhere else and nobody is
+    // watching this screen waiting for an error message.
     val tuneTo by container.tuneTo.collectAsState()
     LaunchedEffect(tuneTo, channels) {
         val wanted = tuneTo ?: return@LaunchedEffect
@@ -320,12 +320,12 @@ fun LiveScreen(
     // unchanged. Reading them through a holder that recomposition keeps current is what stops a tap
     // opening the channel list as it was on the way in — which on a fresh install is no list at all.
     //
-    // El arrastre se quedó fuera de esa lista y por eso «el swipe a veces deja de funcionar»: [zap]
-    // captura `channels` y `currentChannel` tal y como estaban en la primera composición. Si la
-    // lista todavía no había llegado, el gesto se queda con una lista vacía y no hace nada nunca
-    // más; y con lista, calcula desde qué canal avanzar usando el que sonaba entonces, no el de
-    // ahora. Volvía a la vida al abrir y cerrar la lista de canales, porque eso quita y repone este
-    // nodo — de ahí lo de «a veces».
+    // The swipe was left out of that list, and that is why "the swipe sometimes stops working":
+    // [zap] captured `channels` and `currentChannel` exactly as they were on the first composition.
+    // If the list had not arrived yet, the gesture is stuck with an empty list and never does
+    // anything again; and with a list, it works out which channel to move on from using whichever
+    // was playing back then, not the one playing now. It came back to life on opening and closing
+    // the channel list, because that removes and re-adds this node — hence the "sometimes".
     val onTap by rememberUpdatedState<() -> Unit> { openList() }
     val onLongPress by rememberUpdatedState<() -> Unit> { startRefresh() }
     val onTapBesideList by rememberUpdatedState<() -> Unit> { layer = LiveLayer.None }
@@ -403,10 +403,10 @@ fun LiveScreen(
         }
 
         // Under the list rather than over it, so a finger only reaches this where the panel is not:
-        // the picture beside it. Tocar ahí cierra la lista y nada más. Deliberadamente *no* es lo
-        // que hace el segundo Back de un mando —que se va de la pantalla—: tocar fuera de un panel
-        // es el gesto universal de «quita esto», y en modo simple llevaba directo al diálogo de
-        // apagar la tele, que es mucho preguntar por un dedo que se ha ido al borde.
+        // the picture beside it. Tapping there closes the list and nothing else. Deliberately *not*
+        // what a remote's second Back does — which leaves the screen: tapping outside a panel is the
+        // universal gesture for "get rid of this", and in simple mode it led straight to the "turn
+        // the television off" dialog, which is a lot to ask of a finger that strayed to the edge.
         if (layer == LiveLayer.List) {
             Box(
                 Modifier
@@ -459,8 +459,9 @@ private fun LiveNotice(
     val message = when {
         !hasChannels && refreshing -> stringResource(R.string.live_loading_channels)
         !hasChannels -> stringResource(R.string.live_no_channels)
-        // La cuenta ocupada es el fallo más probable de una casa de una sola conexión, y decir «este
-        // canal no está disponible» manda a mirar el canal, que es donde no está el problema.
+        // A busy account is the most likely failure in a one-connection household, and saying "this
+        // channel is not available" sends somebody to look at the channel, which is not where the
+        // problem is.
         playback is PlaybackState.Failed && playback.accountBusy ->
             stringResource(R.string.account_busy)
         playback is PlaybackState.Failed -> stringResource(R.string.live_channel_dead)

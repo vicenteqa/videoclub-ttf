@@ -38,10 +38,10 @@ sealed interface PlaybackState {
     /**
      * Every feed of the channel failed. A retry is already scheduled.
      *
-     * [accountBusy] distingue el fallo más probable de esta casa —la cuenta admite una conexión y la
-     * está usando otro aparato— del resto. Empieza en false y pasa a true si el proveedor lo
-     * confirma, así que la pantalla dice primero lo genérico y se corrige a lo concreto: es lo
-     * contrario de acusar y luego desdecirse.
+     * [accountBusy] separates this household's most likely failure — the account allows one
+     * connection and another device is using it — from all the others. It starts false and turns
+     * true if the supplier confirms it, so the screen says the generic thing first and corrects
+     * itself to the specific one: the opposite of accusing and then taking it back.
      */
     data class Failed(val channel: Channel, val accountBusy: Boolean = false) : PlaybackState
 }
@@ -104,11 +104,11 @@ class LivePlayer(
     private val scope: CoroutineScope,
     private val profile: DeviceProfile,
     /**
-     * Avisa cuando un canal lleva puesto lo bastante como para ser lo que alguien está viendo.
+     * Fires when a channel has been on long enough to count as what somebody is watching.
      *
-     * El videoclub ya informaba de películas y series desde el guardado de posición, pero la
-     * televisión no pasa por ahí —no hay posición que guardar en un directo— así que ver la tele
-     * dejaba el panel en blanco. Esto es lo mismo que hace SimpleTV con sus canales.
+     * The video shop already reported films and episodes from the position save, but television does
+     * not go through that — there is no position to save in a live stream — so watching television
+     * left the panel blank. This is the same thing SimpleTV did with its channels.
      */
     private val onSettled: ((Channel) -> Unit)? = null
 ) {
@@ -124,10 +124,10 @@ class LivePlayer(
     private var feedIndex = 0
 
     /**
-     * El `User-Agent` del canal que suena, o null para usar el de la casa.
+     * The `User-Agent` of the channel currently playing, or null to use the household's own.
      *
-     * `@Volatile` porque lo escribe el hilo que cambia de canal y lo lee el que abre cada petición
-     * HTTP, que no son el mismo.
+     * `@Volatile` because the thread that changes channel writes it and the one opening each HTTP
+     * request reads it, and those are not the same thread.
      */
     @Volatile
     private var feedUserAgent: String? = null
@@ -148,7 +148,7 @@ class LivePlayer(
 
     private var settleJob: Job? = null
 
-    /** Para qué canal cuenta [settleJob], para que un rebufeo no le reinicie el reloj. */
+    /** Which channel [settleJob] is counting for, so that a rebuffer does not restart its clock. */
     private var settledLabel: String? = null
     private var pictureJob: Job? = null
 
@@ -174,10 +174,11 @@ class LivePlayer(
                 // rather than hardcoded. The player is rebuilt when the section is opened, which is
                 // after any edit to it.
                 OkHttpDataSource.Factory { request ->
-                    // Un canal de la casa —una televisión local— lo sirve otra CDN, que suele
-                    // rechazar cualquier `User-Agent` que no le suene a navegador. Se cambia aquí, en
-                    // la petición, y no en la fábrica: ésta se construye una vez y el canal cambia
-                    // muchas, y la cabecera tiene que ser la del canal que suena ahora mismo.
+                    // A household's own channel — a local station — is served by a different CDN,
+                    // which usually rejects any `User-Agent` that does not look like a browser. It is
+                    // swapped here, on the request, and not on the factory: the factory is built once
+                    // and the channel changes many times, and the header has to be the one belonging
+                    // to the channel playing right now.
                     val perChannel = feedUserAgent
                     val outgoing = if (perChannel == null) request
                     else request.newBuilder().header("User-Agent", perChannel).build()
@@ -336,11 +337,11 @@ class LivePlayer(
     }
 
     /**
-     * Arranca la cuenta atrás de «esto es lo que están viendo».
+     * Starts the countdown for "this is what they are watching".
      *
-     * Un temporizador que ya corre para el mismo canal se deja en paz, y eso es lo que hace que
-     * caerse por la cadena de feeds —de Cuatro HD a Cuatro FHD— no reinicie el reloj: es el mismo
-     * canal por otra puerta, no un canal nuevo. Un rebufeo que recupera, igual.
+     * A timer already running for the same channel is left alone, and that is what stops falling
+     * down the feed chain — from Cuatro HD to Cuatro FHD — from restarting the clock: it is the same
+     * channel through another door, not a new one. A rebuffer that recovers, likewise.
      */
     private fun startSettleTimer(channel: Channel) {
         val listener = onSettled ?: return
@@ -393,22 +394,23 @@ class LivePlayer(
         // limit — which is most of them — the supplier refuses the new request while it still counts
         // the old socket as in use, and that refusal is exactly the "cannot load" the viewer sees.
         exoPlayer.stop()
-        // Antes de pedir nada: la fábrica de peticiones lo lee en cada llamada.
+        // Before asking for anything: the request factory reads this on every call.
         feedUserAgent = feed.userAgent
 
-        // Preparar un `MediaItem` puede tirar en vez de avisar por `onPlayerError`: ExoPlayer busca
-        // por reflexión la fábrica del formato que huele en la URL, y si no está enlazada, la
-        // excepción sube por aquí y se lleva la app. La URL de un canal de la casa la escribe una
-        // persona en el documento alojado, así que eso es una errata a un `.mpd` de distancia. Un
-        // canal que no se puede ni abrir es un canal que falla, que es algo que este reproductor ya
-        // sabe hacer: se baja por la cadena y, si no queda nada, lo dice en pantalla.
+        // Preparing a `MediaItem` can throw rather than report through `onPlayerError`: ExoPlayer
+        // looks up the factory for whichever format it smells in the URL by reflection, and if that
+        // module is not linked in, the exception comes up through here and takes the app with it. A
+        // household channel's URL is written by a person in the hosted document, so that is one typo
+        // and an `.mpd` away. A channel that cannot even be opened is a channel that failed, which
+        // is something this player already knows how to handle: it walks down the chain and, if
+        // nothing is left, says so on screen.
         val opened = runCatching {
             exoPlayer.setMediaItem(MediaItem.fromUri(feed.url ?: client.liveUrl(feed.streamId)))
             exoPlayer.playWhenReady = true
             exoPlayer.prepare()
         }
         if (opened.isFailure) {
-            Log.w(TAG, "No se pudo preparar ${feed.originalName}", opened.exceptionOrNull())
+            Log.w(TAG, "Could not prepare ${feed.originalName}", opened.exceptionOrNull())
             // Insistir no puede ayudar: el formato no va a estar enlazado dentro de un segundo.
             onFeedFailed("formato no soportado", retryable = false)
             return
@@ -447,25 +449,25 @@ class LivePlayer(
     }
 
     /**
-     * Le pregunta al proveedor si la cuenta está llena, y sólo entonces lo dice.
+     * Asks the supplier whether the account is full, and only then says so.
      *
-     * **Se pregunta aquí y no al primer error**, y esa es la parte que importa: nuestro propio
-     * socket cuenta como conexión abierta durante unos segundos después de cerrarlo, así que
-     * preguntar justo tras un zapeo diría «lo está viendo otro» señalando a la tele de uno mismo.
-     * Para cuando la cadena entera se ha agotado —dos intentos por señal y todas las señales— eso
-     * ya no está en juego.
+     * **It is asked here and not on the first error**, and that is the part that matters: our own
+     * socket counts as an open connection for a few seconds after being closed, so asking right
+     * after a channel change would say "somebody else is watching it" while pointing at this very
+     * television. By the time the whole chain is exhausted — two attempts per feed and every feed —
+     * that is no longer in play.
      *
-     * Si la respuesta no llega, o llega diciendo que no, no se toca nada: el mensaje genérico que ya
-     * está en pantalla sigue siendo el correcto.
+     * If the answer never arrives, or arrives saying no, nothing is touched: the generic message
+     * already on screen is still the right one.
      */
     private fun askWhetherAccountIsBusy(current: Channel) {
         scope.launch {
             if (client.accountIsFull() != true) return@launch
             val state = _state.value
             // Puede haber cambiado de canal mientras se preguntaba; entonces la respuesta ya no
-            // describe lo que hay en pantalla.
+            // describes what is on screen.
             if (state is PlaybackState.Failed && state.channel == current) {
-                Log.i(TAG, "La cuenta tiene todas sus conexiones en uso")
+                Log.i(TAG, "The account has all of its connections in use")
                 _state.value = PlaybackState.Failed(current, accountBusy = true)
             }
         }
@@ -550,10 +552,10 @@ class LivePlayer(
         const val TAG = "LivePlayer"
 
         /**
-         * Cuánto hay que dejar un canal puesto para que cuente.
+         * How long a channel has to stay on before it counts.
          *
-         * Los mismos cuarenta y cinco segundos que usa SimpleTV, y por lo mismo: separar el canal
-         * en el que alguien se para de los once por los que pasó para llegar a él.
+         * The same forty-five seconds SimpleTV used, and for the same reason: to separate the
+         * channel somebody stopped on from the eleven they passed through to get there.
          */
         const val SETTLE_MS = 45_000L
 

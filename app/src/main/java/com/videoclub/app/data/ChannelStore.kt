@@ -34,11 +34,11 @@ class ChannelStore(context: Context) {
         get() = prefs.getLong(KEY_SAVED_AT, 0L)
 
     /**
-     * La marca del último «pon este canal» que ya se obedeció, en segundos.
+     * The timestamp of the last "tune to this channel" that was obeyed, in seconds.
      *
-     * Vive en disco y no en memoria a propósito: si se reiniciara la app —o se fuera la luz— con una
-     * orden reciente todavía en el documento, sin esto volvería a saltar al canal al arrancar, que
-     * es exactamente la clase de cosa que hace que alguien desconfíe del aparato.
+     * It lives on disk rather than in memory on purpose: if the app restarted — or the power went —
+     * with a recent order still in the document, without this it would jump to that channel again on
+     * startup, which is exactly the sort of thing that makes somebody distrust the device.
      */
     var obeyedTuneAt: Long
         get() = prefs.getLong(KEY_TUNE_OBEYED, 0L)

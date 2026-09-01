@@ -112,7 +112,7 @@ data class BrowseState(
     /** Resolved down to a specific episode, and only ever filled for [Tab.Home]. */
     val continueEntries: List<ContinueEntry> = emptyList(),
     val rows: List<HomeRow> = emptyList(),
-    /** `Porque viste …`. Only ever filled for [Tab.Home], and only when there is a history. */
+    /** The `Porque viste …` shelf. Only ever filled for [Tab.Home], and only when there is a history. */
     val suggestions: List<Suggestion> = emptyList(),
     val watchlist: List<Title> = emptyList(),
     val recentlyAdded: List<Title> = emptyList(),
@@ -181,14 +181,14 @@ class MainViewModel(private val container: Container) : ViewModel() {
         // One person in the house is not a question. The chooser exists to stop an evening being
         // written into somebody else's history, and with nobody else there is nowhere for it to go.
         //
-        // Sigue a la lista en lugar de leerla una vez, y eso es lo que arregla un fallo que se veía
-        // al arrancar: cuando se construye esto, el documento de la casa todavía no ha llegado del
-        // servidor, así que la lista es la de relleno — una sola persona llamada «Casa» — y leerla
-        // aquí significaba dar por contestada la pregunta con alguien que no existe. La consecuencia
-        // en pantalla era una «C» en el círculo del perfil hasta que alguien lo tocaba.
+        // Follows the list rather than reading it once, and that is what fixes a bug visible at
+        // startup: when this is built, the household's document has not arrived from the server yet,
+        // so the list is the placeholder one — a single person called "Casa" — and reading it here
+        // meant treating the question as answered by somebody who does not exist. What that looked
+        // like on screen was a "C" in the profile circle until somebody tapped it.
         //
-        // Por eso espera a [Startup.Ready]: es el punto en el que el contenedor ya ha adoptado el
-        // documento, y hasta entonces no hay nada que decidir.
+        // Hence waiting for [Startup.Ready]: that is the point at which the container has adopted
+        // the document, and before it there is nothing to decide.
         viewModelScope.launch {
             container.startup
                 .combine(catalog.profiles) { startup, people -> startup to people }
@@ -196,8 +196,8 @@ class MainViewModel(private val container: Container) : ViewModel() {
                     if (startup != Startup.Ready) return@collect
                     val chosen = _viewer.value
                     _viewer.value = when {
-                        // A quien ya está viendo no se le vuelve a preguntar; si la casa ha dejado
-                        // de tenerle, sí, porque su historial se ha ido con él.
+                        // Whoever is already watching is not asked again; if the household no
+                        // longer has them, they are, because their history went with them.
                         chosen != null -> people.firstOrNull { it.id == chosen.id }
                         people.size == 1 -> people.first()
                         else -> null
@@ -501,12 +501,13 @@ class MainViewModel(private val container: Container) : ViewModel() {
         val state = _detail.value ?: return
         val next = !state.inWatchlist
         _detail.value = state.copy(inWatchlist = next)
-        // Empuja la decisión en cuanto se toma, igual que hace el reproductor con la posición. Sin
-        // esto la lista sólo viajaría al volver al primer plano, y guardar algo en el móvil para
-        // verlo en la tele es justo la cosa que se hace de pie y sin volver a abrir la app.
+        // Pushes the decision the moment it is made, exactly as the player does with position.
+        // Without this the list would only travel on returning to the foreground, and saving
+        // something on a phone to watch on the television is precisely the thing one does standing
+        // up, without opening the app again.
         //
-        // Después de que la fila esté escrita, no a la vez: el guardado va a otro hilo, y una
-        // sincronización lanzada en paralelo sale sin nada que mandar.
+        // After the row is written, not alongside it: the save goes to another thread, and a sync
+        // launched in parallel leaves with nothing to send.
         viewModelScope.launch {
             catalog.setInWatchlist(state.title.id, next).join()
             container.progressSync.request()
@@ -658,23 +659,23 @@ class MainViewModel(private val container: Container) : ViewModel() {
     ) {
         catalog.saveTracks(request.titleId, tracks)
         reportIfSettled(request, positionMillis)
-        // Empuja lo que se acaba de guardar. Si hay una vuelta en marcha, ésta se descarta: el
-        // guardado siguiente —esto corre en bucle mientras se reproduce— la vuelve a pedir.
+        // Pushes what has just been saved. If a round is already running this one is dropped: the
+        // next save — this runs in a loop while playing — will ask for another.
         container.progressSync.request()
         if (durationMillis <= 0) return
         catalog.saveProgress(request.titleId, request.episodeId, positionMillis, durationMillis)
     }
 
     /**
-     * Le dice al panel qué hay puesto, una vez que llevar puesto un rato.
+     * Tells the panel what is on, once it has been on for a while.
      *
-     * El umbral se mide sobre lo *reproducido en esta sesión*, no sobre la posición: un título que
-     * se retoma en el minuto cuarenta empieza ya por encima de cualquier umbral absoluto, y abrirlo
-     * tres segundos para ver de qué iba acabaría contando como haberlo visto.
+     * The threshold is measured on what has been *played in this session*, not on the position: a
+     * title resumed at minute forty starts out above any absolute threshold, and opening it for
+     * three seconds to remember what it was about would end up counting as having watched it.
      *
-     * De las series se manda el nombre de la serie y no el del episodio. El panel agrupa por lo que
-     * recibe y cuenta repeticiones, así que «catorce veces» junto a una serie dice algo; catorce
-     * filas separadas por un episodio no dicen nada.
+     * For series it is the series' name that is sent, not the episode's. The panel groups by what it
+     * receives and counts repeats, so "fourteen times" next to a series says something; fourteen
+     * separate rows one episode apart say nothing.
      */
     private fun reportIfSettled(request: PlayRequest, positionMillis: Long) {
         val key = "${request.titleId}:${request.episodeId}"
@@ -684,17 +685,17 @@ class MainViewModel(private val container: Container) : ViewModel() {
             return
         }
         if (positionMillis - settledFromMillis < SETTLE_MS) return
-        Log.i(TAG, "Puesto un rato: se informa de «${request.heading}»")
+        Log.i(TAG, "On for a while: reporting «${request.heading}»")
         container.reporter.settledOn(
             request.heading,
-            // Un episodio siempre trae su identificador; una película va con cero. Es la misma
-            // distinción que usa el progreso guardado, así que no hay dos criterios que puedan
-            // separarse con el tiempo.
+            // An episode always carries its identifier; a film goes with zero. It is the same
+            // distinction the saved progress uses, so there are not two rules that can drift apart
+            // over time.
             if (request.episodeId != 0) WatchReporter.Kind.Series else WatchReporter.Kind.Film
         )
     }
 
-    /** Qué se está contando como puesto, y desde qué posición empezó a contar. */
+    /** What is being counted as on, and the position it started counting from. */
     private var settledKey: String? = null
     private var settledFromMillis: Long = 0
 
@@ -702,10 +703,10 @@ class MainViewModel(private val container: Container) : ViewModel() {
         private const val SEARCH_DEBOUNCE_MS = 220L
 
         /**
-         * Cuánto hay que ver de algo para que cuente como visto.
+         * How much of something has to be watched for it to count as watched.
          *
-         * El mismo minuto y pico que usa SimpleTV con los canales, y por lo mismo: separar lo que
-         * alguien ha puesto de lo que alguien ha ojeado.
+         * The same minute-odd SimpleTV used for channels, and for the same reason: to separate what
+         * somebody put on from what somebody glanced at.
          */
         private const val SETTLE_MS = 60_000L
 

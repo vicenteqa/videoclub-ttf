@@ -138,7 +138,7 @@ internal fun ChannelList(
     skin: LiveSkin,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    /** De qué casa es este APK y en qué cuenta está. Los dos vacíos no dibujan nada. */
+    /** Which household this APK belongs to and which account it is on. Both empty draws nothing. */
     house: String = "",
     accountUser: String = ""
 ) {
@@ -167,8 +167,9 @@ internal fun ChannelList(
         ) {
             LazyColumn(
                 state = listState,
-                // `weight` y no `fillMaxWidth` a secas: sin él la lista se queda con todo el alto de
-                // la columna y empuja el pie fuera de la pantalla, donde nadie lo ve nunca.
+                // `weight` rather than a bare `fillMaxWidth`: without it the list takes the whole
+                // height of the column and pushes the footer off the screen, where nobody ever sees
+                // it.
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
@@ -196,22 +197,23 @@ internal fun ChannelList(
 }
 
 /**
- * De qué casa es este aparato y en qué cuenta está, al pie de la lista.
+ * Which household this device belongs to and which account it is on, at the foot of the list.
  *
- * Diagnosticar «no se ve nada» desde otra casa se reduce a dos preguntas —¿es este el APK que creo
- * que le instalé?, ¿está en la cuenta que creo?— y la única forma de contestarlas era un cable y
- * `adb`. Ahora es «abre la lista y léeme lo de abajo», por teléfono.
+ * Diagnosing "nothing is showing" from another house comes down to two questions — is this the APK
+ * I think I installed? is it on the account I think it is? — and the only way to answer them was a
+ * cable and `adb`. Now it is "open the list and read me what is at the bottom", over the phone.
  *
- * La casa sale del `BuildConfig` y no del documento alojado, y ahí está la gracia: es el nombre del
- * flavour, es decir **qué APK** se instaló, que es justo lo que se equivoca uno al sideloadear.
- * Preguntárselo al documento respondería a la otra pregunta —de quién es la cuenta que se ha
- * descargado— y las dos juntas son las que distinguen «instalé el que no era» de «el panel apunta a
- * donde no debe». Nunca la URL: lleva dentro la ruta secreta, que hace de credencial.
+ * The household comes from `BuildConfig` rather than from the hosted document, and that is the
+ * point: it is the flavour's name, that is, **which APK** was installed, which is precisely what one
+ * gets wrong when sideloading. Asking the document would answer the other question — whose account
+ * has been downloaded — and the two together are what separate "I installed the wrong one" from
+ * "the panel is pointing somewhere it should not". Never the URL: it carries the secret path, which
+ * acts as the credential.
  *
- * En letra más pequeña que una fila de canal, porque no es contenido: es una chapa con el número de
- * serie. Fijo bajo la lista y no como última fila —alguien lo lee en voz alta con la tele
- * portándose mal, y pedirle que haga scroll primero es una instrucción más— y sólo existe mientras
- * la lista está abierta, así que nunca tapa la imagen.
+ * In smaller type than a channel row, because it is not content: it is a plate with a serial number
+ * on it. Pinned below the list rather than being its last row — somebody reads it out loud with the
+ * television misbehaving, and asking them to scroll first is one more instruction — and it exists
+ * only while the list is open, so it never covers the picture.
  */
 @Composable
 private fun AccountFooter(house: String, user: String, skin: LiveSkin) {
@@ -239,7 +241,7 @@ private fun AccountFooter(house: String, user: String, skin: LiveSkin) {
     }
 }
 
-/** Lo justo para que se lea como una chapa y no como una fila más. */
+/** Just enough to read as a plate rather than as one more row. */
 private const val FOOTER_SCALE = 0.8f
 
 @Composable

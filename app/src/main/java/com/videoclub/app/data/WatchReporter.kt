@@ -60,9 +60,10 @@ class WatchReporter(
     fun settledOn(label: String, kind: Kind) {
         val config = settings.current
         if (!config.reportsWhatIsOn) {
-            // Dicho en voz alta porque desde fuera es indistinguible de que nadie esté viendo nada,
-            // y la diferencia —documento sin `reportUrl`— se arregla en el panel en diez segundos.
-            Log.i(TAG, "Esta casa no informa: su documento no trae a dónde")
+            // Said out loud because from the outside it is indistinguishable from nobody watching
+            // anything, and the difference — a document with no `reportUrl` — is fixed in the panel
+            // in ten seconds.
+            Log.i(TAG, "This household does not report: its document carries nowhere to send to")
             return
         }
         val trimmed = label.trim()
@@ -94,10 +95,10 @@ class WatchReporter(
                     .build()
                 http.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
-                        // El éxito también se dice. Sin esto, «no sale nada en el panel» no se
-                        // puede separar de «no llegó a intentarlo», que es exactamente donde se
-                        // perdió una tarde.
-                        Log.i(TAG, "Informado al panel: ${kind.wire}")
+                        // Success is said out loud too. Without this, "nothing shows up in the
+                        // panel" cannot be separated from "it never got as far as trying", which is
+                        // exactly where an afternoon once went.
+                        Log.i(TAG, "Reported to the panel: ${kind.wire}")
                     } else {
                         Log.w(TAG, "The panel refused the report (${response.code})")
                     }
@@ -116,19 +117,19 @@ class WatchReporter(
         reported = null
     }
 
-    /** Los rótulos ya mandados, para no repetir la misma lista en cada arranque. */
+    /** The labels already sent, so the same list is not repeated on every launch. */
     private var sentLineup: String? = null
 
     /**
-     * Le dice al panel qué canales tiene esta casa.
+     * Tells the panel which channels this household has.
      *
-     * Sin esto, el desplegable de «poner un canal» del panel no tendría de dónde salir: el panel
-     * conoce los dos mil nombres crudos del proveedor, no los sesenta y pico rótulos que produce
-     * [LiveCuration]. Y copiar la curación al panel sería tener las reglas escritas en dos sitios y
-     * en dos lenguajes, que es justo lo que se quitó de en medio al juntar los proyectos.
+     * Without this, the panel's "send a channel" dropdown would have nowhere to come from: the panel
+     * knows the supplier's two thousand raw names, not the sixty-odd labels [LiveCuration] produces.
+     * And copying the curation into the panel would mean the rules written in two places and two
+     * languages, which is exactly what merging the projects got rid of.
      *
-     * Así que la app, que es quien decide, lo cuenta. Se manda cuando la lista cambia y no en cada
-     * arranque —de ahí [sentLineup]—, y como mucho es un kilobyte una vez al día.
+     * So the app, which is the one that decides, says so. It is sent when the list changes rather
+     * than on every launch — hence [sentLineup] — and at most it is a kilobyte once a day.
      */
     fun lineup(labels: List<String>) {
         val config = settings.current
@@ -149,15 +150,15 @@ class WatchReporter(
                     .post(body.toRequestBody(JSON))
                     .build()
                 http.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) Log.i(TAG, "Lista de canales enviada al panel")
-                    else Log.w(TAG, "El panel rechazó la lista (${response.code})")
+                    if (response.isSuccessful) Log.i(TAG, "Channel list sent to the panel")
+                    else Log.w(TAG, "The panel refused the list (${response.code})")
                 }
             }.onFailure { error ->
-                // Que no llegue no rompe nada: el panel se queda con la lista de antes, o sin
-                // desplegable si nunca hubo una. Un canal que no se puede mandar en remoto es una
-                // comodidad menos, no una avería.
+                // Failing to arrive breaks nothing: the panel keeps the previous list, or has no
+                // dropdown if there never was one. A channel that cannot be sent remotely is one
+                // convenience fewer, not a fault.
                 sentLineup = null
-                Log.w(TAG, "No se pudo enviar la lista (${error.javaClass.simpleName})")
+                Log.w(TAG, "Could not send the list (${error.javaClass.simpleName})")
             }
         }
     }

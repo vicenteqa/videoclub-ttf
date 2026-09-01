@@ -5,51 +5,53 @@ import android.util.Log
 import java.io.File
 
 /**
- * Deja el aparato limpio cuando le instalan encima el APK de otra casa.
+ * Leaves the device clean when another household's APK is installed over the top.
  *
- * Todas las casas comparten `applicationId`, a propósito: así una casa que ya tiene la app instalada
- * recibe la siguiente versión como una actualización y no como una segunda app. El precio es que
- * instalar el APK de otra casa encima **conserva los datos de la anterior** —Android sólo los borra
- * al desinstalar—, y lo que queda en disco no es un detalle interno: es el catálogo, el «Seguir
- * viendo» y «Mi lista» de la casa de antes, con nombres de películas y de personas.
+ * Every household shares one `applicationId`, deliberately: that way a household that already has
+ * the app receives the next version as an update rather than as a second app. The price is that
+ * installing another household's APK over it **keeps the previous one's data** — Android only wipes
+ * that on uninstall — and what stays on disk is not an internal detail: it is the previous
+ * household's catalogue, "Continue watching" and "My list", with film titles and people's names in
+ * them.
  *
- * Que el documento alojado se descargue al arrancar no lo arregla solo. Cuando la cuenta cambia,
- * [CatalogRepository.refresh] reconstruye el catálogo, pero eso son novecientas peticiones y un par
- * de minutos durante los cuales lo que se ve en pantalla sigue siendo la tienda de la otra casa. Y
- * un aparato que arranca sin red no lo arregla nunca.
+ * The hosted document being fetched at launch does not fix this on its own. When the account
+ * changes, [CatalogRepository.refresh] rebuilds the catalogue, but that is nine hundred requests and
+ * a couple of minutes during which what is on screen is still the other household's shop. And a
+ * device that starts with no network never fixes it at all.
  *
- * Así que la casa se decide aquí, en seco y antes de que nada abra la base de datos: el APK lleva
- * compilada la URL de su documento —`BuildConfig.REMOTE_CONFIG_URL`, una por casa— y este es el
- * único sitio que la compara con la que dejó grabada la instalación anterior.
+ * So the household is decided here, up front and before anything opens the database: the APK
+ * carries its document's URL compiled in — `BuildConfig.REMOTE_CONFIG_URL`, one per household — and
+ * this is the only place that compares it against the one the previous installation left stamped.
  *
- * **Se borra por barrido y no por lista de nombres.** Bases de datos, ficheros, cachés y
- * preferencias, todo menos el sello. Enumerar `catalogo.db`, `provider.json` y compañía sería una
- * copia de la verdad que vive en [CatalogStore] y [ChannelStore], y el día que alguien añada un
- * caché nuevo esa copia se quedaría corta en silencio — con datos de otra casa dentro. Aquí lo que
- * no se reconoce se va, que para un aparato que acaba de cambiar de dueño es la respuesta correcta.
+ * **It wipes by sweep, not by a list of names.** Databases, files, caches and preferences,
+ * everything but the stamp. Enumerating `catalogo.db`, `provider.json` and friends would be a copy
+ * of the truth that lives in [CatalogStore] and [ChannelStore], and the day somebody adds a new
+ * cache that copy would quietly fall short — with another household's data inside it. Here, what is
+ * not recognised goes, which for a device that has just changed hands is the right answer.
  *
- * **Un aparato sin sello no se toca.** Es el caso de todas las instalaciones anteriores a esta
- * versión: borrarles el disco por no reconocerse a sí mismas les costaría el progreso que todavía
- * no han sincronizado, que es justo lo que no se puede reponer. Se les pone el sello y se sigue.
+ * **A device with no stamp is left alone.** That is every installation older than this version:
+ * wiping their disk for failing to recognise themselves would cost them the progress they have not
+ * synchronised yet, which is precisely the part that cannot be recovered. They get stamped and life
+ * goes on.
  */
 fun wipeIfHouseholdChanged(context: Context, remoteConfigUrl: String): Boolean {
-    // Una build sin URL compilada no tiene casa que comparar; no hay nada que decidir.
+    // A build with no compiled URL has no household to compare against; there is nothing to decide.
     if (remoteConfigUrl.isBlank()) return false
 
     val stamp = context.getSharedPreferences(STAMP_PREFS, Context.MODE_PRIVATE)
     val previous = stamp.getString(KEY_URL, null)
     if (previous == remoteConfigUrl) return false
 
-    // `commit` y no `apply` en los dos caminos: lo siguiente que ocurre es que se vuelven a abrir
-    // esos ficheros, y un sello escrito a medias convierte el próximo arranque en otro borrado.
+    // `commit` rather than `apply` on both paths: the very next thing that happens is those files
+    // being opened again, and a half-written stamp turns the next launch into another wipe.
     if (previous == null) {
-        Log.i(TAG, "Primer arranque con sello de casa; no se borra nada")
+        Log.i(TAG, "First launch with a household stamp; nothing is wiped")
         stamp.edit().putString(KEY_URL, remoteConfigUrl).commit()
         return false
     }
 
-    // Se dice en voz alta y sin la URL: lleva dentro la ruta secreta, que hace de credencial.
-    Log.w(TAG, "Este APK es de otra casa que la instalada; se borra lo que había")
+    // Said out loud and without the URL: it carries the secret path, which acts as the credential.
+    Log.w(TAG, "This APK belongs to a different household than the installed one; wiping what was here")
 
     for (name in context.databaseList()) context.deleteDatabase(name)
     context.filesDir.deleteContents()
@@ -63,11 +65,11 @@ fun wipeIfHouseholdChanged(context: Context, remoteConfigUrl: String): Boolean {
 }
 
 /**
- * Cómo se llaman las preferencias de esta app.
+ * What this app's shared preferences are called.
  *
- * No hay API para preguntarlo, así que se lee el directorio donde Android las guarda. Si un día deja
- * de estar ahí, esto devuelve una lista vacía y el resto del borrado sigue haciéndose: mejor limpiar
- * de menos que caerse durante el arranque.
+ * There is no API to ask, so the directory Android keeps them in is read instead. If it ever stops
+ * being there, this returns an empty list and the rest of the wipe still happens: better to clean
+ * too little than to crash during startup.
  */
 private fun sharedPrefsNames(context: Context): List<String> =
     File(context.applicationInfo.dataDir, "shared_prefs")

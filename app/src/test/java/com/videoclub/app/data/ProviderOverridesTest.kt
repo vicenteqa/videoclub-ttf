@@ -4,9 +4,9 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * `simple` sigue el mismo contrato que el resto de campos del documento alojado: ausente significa
- * «deja lo que haya en caché», nunca «apágalo». Es lo que permite escribir el documento a mano con
- * una sola línea sin tirar del resto de la casa al videoclub completo por accidente.
+ * `simple` follows the same contract as every other field of the hosted document: absent means
+ * "leave whatever is cached", never "switch it off". That is what makes the document safe to edit by
+ * hand one line at a time without accidentally dragging a household back to the full video shop.
  */
 class ProviderOverridesTest {
 
@@ -64,7 +64,7 @@ class ProviderOverridesTest {
         assertThat(reparsed!!.simple).isTrue()
     }
 
-    // --- canales de la casa -------------------------------------------------------------------
+    // --- the household's own channels -----------------------------------------------------------
 
     @Test
     fun `a document that does not mention channels leaves the cached ones alone`() {
@@ -125,11 +125,11 @@ class ProviderOverridesTest {
         assertThat(row.label).isEqualTo("Penedès TV")
         assertThat(row.feeds.single().url).isEqualTo("https://cdn/live.m3u8")
         assertThat(row.feeds.single().userAgent).isEqualTo("Mozilla/5.0")
-        // Los del proveedor son positivos; éstos nunca deben chocar con uno.
+        // The supplier's are positive; these must never collide with one.
         assertThat(row.feeds.single().streamId).isLessThan(0)
     }
 
-    // --- «pon este canal» --------------------------------------------------------------------
+    // --- "tune to this channel" -----------------------------------------------------------------
 
     @Test
     fun `a tune order is read with its channel and its timestamp`() {
@@ -141,8 +141,9 @@ class ProviderOverridesTest {
     }
 
     /**
-     * Sin fecha no hay orden, y no es un capricho: la marca es lo que permite obedecerla una sola
-     * vez. Una orden sin ella se cumpliría en cada consulta del documento, para siempre.
+     * With no timestamp there is no order, and that is not fussiness: the stamp is what allows it
+     * to be obeyed exactly once. An order without one would be carried out on every check of the
+     * document, forever.
      */
     @Test
     fun `an order with no timestamp is not an order`() {
@@ -152,8 +153,8 @@ class ProviderOverridesTest {
     }
 
     /**
-     * El recado no se guarda en la caché: si se guardara, una caja que arrancara mañana sin red se
-     * encontraría en disco la orden de anoche y la cumpliría.
+     * The errand is not written to the cache: if it were, a box starting tomorrow with no network
+     * would find last night's order on disk and carry it out.
      */
     @Test
     fun `an order does not survive the cache`() {

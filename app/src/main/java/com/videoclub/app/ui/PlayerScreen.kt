@@ -120,12 +120,12 @@ fun PlayerScreen(
     }
 
     /**
-     * Si el fallo fue en realidad la cuenta ocupada.
+     * Whether the failure was really the account being busy.
      *
-     * Se pregunta sólo cuando el fallo **no** es de formato: un códec que falta no tiene nada que ver
-     * con cuántas conexiones haya abiertas, y preguntarlo allí sería ruido. Se le da el turno a la
-     * lógica de arriba, que cambia de copia sin molestar a nadie, y esto sólo habla cuando aquello ya
-     * no tiene más copias que probar.
+     * Asked only when the failure is **not** a format one: a missing codec has nothing to do with
+     * how many connections are open, and asking there would be noise. The logic above gets its turn
+     * first, switching copies without bothering anybody, and this only speaks once that has no more
+     * copies to try.
      */
     var accountBusy by remember { mutableStateOf(false) }
     LaunchedEffect(failure) {

@@ -27,10 +27,10 @@ data class ProviderOverrides(
     val password: String? = null,
     val userAgent: String? = null,
     /**
-     * A dónde informar de lo que se ve, y con qué credencial.
+     * Where to report what is being watched, and with which credential.
      *
-     * Los pone el panel al crear la casa. Sin los dos, la app no informa: el emisor lo comprueba,
-     * y así una build vieja o un documento a mano nunca mandan nada sin querer.
+     * The panel sets both when it creates the household. Without both, the app reports nothing: the
+     * sender checks, so an old build or a hand-edited document never sends anything by accident.
      */
     val reportUrl: String? = null,
     val reportToken: String? = null,
@@ -45,22 +45,23 @@ data class ProviderOverrides(
      */
     val nextProfileId: Int? = null,
     /**
-     * Si esta casa se comporta como SimpleTV: sólo la tele en directo, sin videoclub y sin selector
-     * de personas. Null significa «deja lo que haya en caché», igual que el resto de campos.
+     * Whether this household behaves like SimpleTV: live television only, no video shop and no
+     * profile picker. Null means "leave whatever is cached", exactly like every other field.
      */
     val simple: Boolean? = null,
     /**
-     * Canales que no están en el proveedor y añade la casa — televisiones locales. Ver [ExtraChannel].
+     * Channels the supplier does not carry, added by the household — local stations. See
+     * [ExtraChannel].
      *
-     * Null es «deja lo que haya en caché»; una lista vacía es «esta casa no tiene ninguno», que es
-     * cómo se quitan todos.
+     * Null means "leave whatever is cached"; an empty list means "this household has none", which is
+     * how they all get removed.
      */
     val extraChannels: List<ExtraChannel>? = null,
     /**
-     * «Pon este canal», mandado desde el panel. Ver [TuneOrder].
+     * "Tune to this channel", sent from the panel. See [TuneOrder].
      *
-     * No se guarda en [ProviderConfig] ni se compara con nada: es un recado con fecha, no un ajuste,
-     * y quien decide si ya se obedeció es [ChannelStore], no esto.
+     * It is not stored in [ProviderConfig] and is compared against nothing: it is a dated errand,
+     * not a setting, and what decides whether it has already been obeyed is [ChannelStore], not this.
      */
     val tune: TuneOrder? = null
 ) {
@@ -72,11 +73,11 @@ data class ProviderOverrides(
             extraChannels == null && tune == null
 
     /**
-     * Lo que se guarda en disco para el próximo arranque.
+     * What gets written to disk for the next launch.
      *
-     * [tune] queda deliberadamente fuera: un recado es de ahora, y guardarlo significaría que la
-     * caja, al arrancar mañana sin red, se encontrara en la caché una orden de anoche. Que un
-     * recado sólo exista mientras el documento lo diga es lo que impide eso.
+     * [tune] is deliberately left out: an errand belongs to now, and storing it would mean a box
+     * starting tomorrow with no network finding last night's order in its cache. An errand existing
+     * only while the document says so is what prevents that.
      */
     fun encode(): String = JSONObject().apply {
         baseUrl?.let { put(KEY_URL, it) }
@@ -174,10 +175,11 @@ data class ProviderOverrides(
         }
 
         /**
-         * El recado de «pon este canal», o null si el documento no trae ninguno.
+         * The "tune to this channel" errand, or null when the document carries none.
          *
-         * Sin `cuando` no hay orden: una sin fecha no se podría obedecer una sola vez, y la caja
-         * saltaría a ese canal cada vez que releyera el documento. Antes que hacer eso, se ignora.
+         * Without `cuando` there is no order: one with no timestamp could not be obeyed exactly
+         * once, and the box would jump to that channel every time it re-read the document. Rather
+         * than do that, it is ignored.
          */
         private fun JSONObject.tuneOrder(): TuneOrder? {
             val row = optJSONObject(KEY_TUNE) ?: return null
@@ -188,13 +190,14 @@ data class ProviderOverrides(
         }
 
         /**
-         * Los canales que añade la casa, o null cuando el documento no los menciona.
+         * The channels the household adds, or null when the document does not mention them.
          *
-         * A diferencia de [people], una lista vacía **se respeta** y no se convierte en null: quitar
-         * el último canal añadido es una cosa que alguien quiere hacer de verdad, mientras que
-         * quedarse sin personas dejaría la casa sin nadie a quien atribuir nada. Un canal sin nombre
-         * o sin URL se descarta solo, por lo mismo que una persona sin nombre: mejor perder la fila
-         * que rechazar el documento entero y con él un cambio de contraseña que sí valía.
+         * Unlike [people], an empty list **is respected** rather than turned into null: removing the
+         * last added channel is something somebody genuinely wants to do, whereas ending up with no
+         * people would leave the household with nobody to attribute anything to. A channel with no
+         * name or no URL drops itself, for the same reason a person with no name does: better to
+         * lose the row than to reject the whole document, and with it a password change that was
+         * perfectly good.
          */
         private fun JSONObject.channels(): List<ExtraChannel>? {
             val array = optJSONArray(KEY_CHANNELS) ?: return null

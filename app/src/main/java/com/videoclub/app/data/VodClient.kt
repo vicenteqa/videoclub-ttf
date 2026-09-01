@@ -130,14 +130,14 @@ class VodClient(
     // ------------------------------------------------------------------------------------ plumbing
 
     /**
-     * Si la cuenta ya tiene abiertas todas las conexiones que le caben.
+     * Whether the account already has every connection it is allowed open.
      *
-     * `true` sí, `false` no, y **null cuando no se sabe** — que es un tercer caso de verdad y no un
-     * «no»: sin red, o con un proveedor que no publica el dato, la respuesta honesta es callarse en
-     * vez de acusar a nadie de estar viendo la tele.
+     * `true` yes, `false` no, and **null when it is not known** — a genuine third case rather than a
+     * "no": with no network, or with a supplier that does not publish the figure, the honest answer
+     * is to say nothing instead of accusing somebody of watching television.
      *
-     * Se pregunta al endpoint de login, no a un stream, así que preguntarlo no gasta una conexión —
-     * que sería una forma tonta de que la comprobación causara el problema que investiga.
+     * It asks the login endpoint, not a stream, so asking costs no connection — which would be a
+     * silly way for the check to cause the very problem it is investigating.
      */
     suspend fun accountIsFull(): Boolean? = withContext(Dispatchers.IO) {
         runCatching {

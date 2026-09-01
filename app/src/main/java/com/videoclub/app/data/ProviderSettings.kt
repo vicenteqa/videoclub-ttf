@@ -49,10 +49,10 @@ class ProviderSettings(
         private set
 
     /**
-     * El último «pon este canal» que trajo el documento, o null.
+     * The last "tune to this channel" the document carried, or null.
      *
-     * No sale de la caché: sólo lo pone [apply], así que un arranque sin red no trae recados
-     * viejos. Ver [ProviderOverrides.encode].
+     * It never comes from the cache: only [apply] sets it, so a launch with no network brings no
+     * stale errands. See [ProviderOverrides.encode].
      */
     @Volatile
     var tuneOrder: TuneOrder? = null
@@ -70,10 +70,10 @@ class ProviderSettings(
      * case, since this runs on every launch — writes nothing and costs nothing.
      */
     fun apply(fetched: ProviderOverrides): Boolean {
-        // Antes que nada y fuera del atajo de abajo: un documento cuyo único cambio es el recado de
-        // «pon este canal» no mueve la configuración —el recado no forma parte de ella— así que la
-        // comparación siguiente diría «no ha cambiado nada» y se lo comería enterito. Que es el
-        // caso normal de esta función, no un caso raro: mandar un canal no toca la cuenta.
+        // First of all, and outside the shortcut below: a document whose only change is the "tune
+        // to this channel" errand does not move the configuration — the errand is not part of it —
+        // so the comparison that follows would say "nothing changed" and swallow it whole. And that
+        // is this function's normal case, not a rare one: sending a channel touches no account.
         tuneOrder = fetched.tune
 
         val updated = baked.mergedWith(fetched)

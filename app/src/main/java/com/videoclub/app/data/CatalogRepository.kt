@@ -67,11 +67,11 @@ class CatalogRepository(
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
     /**
-     * Vuelve a dibujar lo que hay en pantalla porque la base ha cambiado por debajo.
+     * Redraws what is on screen because the database changed underneath it.
      *
-     * Lo llama la sincronización del progreso cuando trae algo de otro aparato de la casa: sin esto
-     * el «Seguir viendo» nuevo estaría en SQLite pero la fila de la pantalla seguiría siendo la de
-     * antes hasta que algo la despertara por su cuenta.
+     * The progress sync calls it when it brings something in from another of the household's
+     * devices: without this the new "Continue watching" would be in SQLite while the row on screen
+     * stayed the old one until something else woke it up.
      */
     fun reload() {
         _revision.update { it + 1 }
@@ -577,9 +577,9 @@ class CatalogRepository(
     }
 
     /**
-     * Devuelve el trabajo, no `Unit`: quien llama tiene que poder esperar a que la fila esté escrita
-     * antes de pedir una sincronización. Pedirla a ciegas justo después es pedirla antes de que haya
-     * nada que mandar, y entonces la decisión no sale de este aparato hasta la vuelta siguiente.
+     * Returns the job rather than `Unit`: the caller has to be able to wait for the row to be
+     * written before asking for a sync. Asking blindly right after means asking before there is
+     * anything to send, and then the decision does not leave this device until the next round.
      */
     fun setInWatchlist(titleId: Long, inList: Boolean): Job {
         val writing = profile

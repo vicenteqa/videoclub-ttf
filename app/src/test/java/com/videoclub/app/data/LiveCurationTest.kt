@@ -198,8 +198,8 @@ class LiveCurationTest {
 
         assertThat(rows.map(Channel::label))
             .containsExactly("National Geographic", "Nat Geo Wild").inOrder()
-        // Las dos grafías del canal de naturaleza caen en la misma fila, que es lo que hace que un
-        // solo alias baste.
+        // Both spellings of the nature channel land on the same row, which is what makes one alias
+        // enough.
         assertThat(rows.last().feeds.map(Feed::originalName))
             .containsExactly("National Geographic Wild FHD", "Nat Geo Wild HD")
     }

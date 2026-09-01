@@ -17,34 +17,33 @@ data class ProviderConfig(
     val password: String,
     val userAgent: String,
     /**
-     * Dónde decir qué se está viendo, y con qué credencial. Los dos vienen del documento alojado
-     * y ninguno tiene valor por defecto: una build sin ellos no informa de nada, que es lo que
-     * debe pasar mientras el panel no los ponga.
+     * Where to say what is being watched, and with which credential. Both come from the hosted
+     * document and neither has a default: a build without them reports nothing, which is what should
+     * happen until the panel sets them.
      */
     val reportUrl: String = "",
     val reportToken: String = "",
     /**
-     * Si esta casa es sólo televisión en directo: sin videoclub, sin pestañas, sin selector de
-     * personas. La pone el panel; su valor por defecto (`false`) es el videoclub completo de
-     * siempre.
+     * Whether this household is live television only: no video shop, no tabs, no profile picker.
+     * The panel sets it; its default (`false`) is the full video shop as always.
      */
     val simple: Boolean = false,
-    /** Los canales que añade la casa por su cuenta, además de los del proveedor. */
+    /** The channels the household adds on its own, on top of the supplier's. */
     val extraChannels: List<ExtraChannel> = emptyList()
 ) {
 
-    /** Informar es opcional, y sólo por HTTPS: esto dice qué ve una persona en su casa. */
+    /** Reporting is optional, and HTTPS only: this says what a person watches in their own home. */
     val reportsWhatIsOn: Boolean
         get() = reportUrl.startsWith("https://") && reportToken.isNotBlank()
 
     /**
-     * Dónde se guarda el progreso de la casa. La ruta vecina de [reportUrl], en el mismo servidor.
+     * Where the household's progress is kept: [reportUrl]'s neighbouring path, on the same server.
      *
-     * Se deduce en vez de ser un campo más del documento, y a propósito: un campo nuevo obligaría a
-     * reescribir los documentos que ya existen para que los aparatos ya instalados sincronizaran, y
-     * lo que hay aquí es una condición sobre lo que el panel escribe —siempre `…/informe`— que se
-     * comprueba antes de usarla. Un documento que diga otra cosa deja el progreso sin sincronizar,
-     * que es lo mismo que pasaba antes de que esto existiera.
+     * Derived rather than being one more field in the document, and deliberately so: a new field
+     * would force every existing document to be rewritten before already-installed devices could
+     * sync, whereas what is here is an assumption about what the panel writes — always `…/informe` —
+     * that is checked before being used. A document saying anything else leaves progress
+     * unsynchronised, which is exactly what happened before this existed.
      */
     val syncUrl: String
         get() = if (reportUrl.endsWith(REPORT_PATH)) {

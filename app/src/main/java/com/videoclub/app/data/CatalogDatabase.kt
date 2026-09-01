@@ -59,22 +59,21 @@ class CatalogDatabase(context: Context) :
     }
 
     /**
-     * Versión 5: dos columnas en `progress` para poder sincronizarlo.
+     * Version 5: two columns on `progress` so that it can be synchronised.
      *
-     * `dirty` marca lo que este aparato ha escrito y todavía no ha conseguido mandar. Se ponen a 1
-     * las filas que ya había: son de antes de que existiera la sincronización, así que el servidor
-     * no las conoce, y perderlas sería perder el «Seguir viendo» de todo el mundo el día que se
-     * actualiza la app.
+     * `dirty` marks what this device has written and has not managed to send yet. Existing rows are
+     * set to 1: they predate synchronisation, so the server does not know them, and losing them
+     * would mean losing everybody's "Continue watching" on the day the app is updated.
      *
-     * `deleted` es la lápida. Quitar algo de «Seguir viendo» es una decisión y tiene que llegar al
-     * otro aparato; una fila borrada no se puede mandar, así que se marca y se filtra al leer.
+     * `deleted` is the tombstone. Removing something from "Continue watching" is a decision and has
+     * to reach the other device; a deleted row cannot be sent, so it is marked and filtered on read.
      */
     private fun addSyncColumns(db: SQLiteDatabase) {
-        // Se comprueba en vez de darse por hecho: [CREATE_PROGRESS] ya las trae, y la migración de
-        // la versión 2 reconstruye la tabla con él, así que un salto de la 1 a la 5 llega aquí con
-        // las columnas puestas y un `ALTER` a secas fallaría. Es el mismo cuidado que se toma
-        // [onUpgrade] con las tablas del usuario, por la misma razón: los dos caminos tienen que
-        // acabar en la misma tabla que se lleva una instalación nueva.
+        // Checked rather than assumed: [CREATE_PROGRESS] already carries them, and the version 2
+        // migration rebuilds the table with it, so a jump from 1 to 5 arrives here with the columns
+        // already in place and a bare `ALTER` would fail. It is the same care [onUpgrade] takes with
+        // the user's tables, for the same reason: both paths have to end at the same table a fresh
+        // installation gets.
         val existing = db.rawQuery("PRAGMA table_info($TABLE_PROGRESS)", null).use { cursor ->
             buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
         }
@@ -84,8 +83,8 @@ class CatalogDatabase(context: Context) :
         if ("deleted" !in existing) {
             db.execSQL("ALTER TABLE $TABLE_PROGRESS ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
         }
-        // Todo lo que ya había es de antes de que esto se sincronizara, así que el servidor no lo
-        // conoce. Sin esta línea, actualizar la app perdería el «Seguir viendo» de la casa entera.
+        // Everything already there predates synchronisation, so the server does not know it.
+        // Without this line, updating the app would lose the whole household's "Continue watching".
         db.execSQL("UPDATE $TABLE_PROGRESS SET dirty = 1")
     }
 
