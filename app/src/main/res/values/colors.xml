@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Duplicated in `ui/Theme.kt` as Compose colours. This copy exists only so the window has
+         the right background before the first composition. -->
+    <color name="surface">#0B0B0F</color>
+</resources>

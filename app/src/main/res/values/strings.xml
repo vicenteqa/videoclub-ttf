@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Videoclub</string>
+
+    <string name="tab_home">Inicio</string>
+    <string name="tab_movies">Películas</string>
+    <string name="tab_series">Series</string>
+    <string name="tab_search">Buscar</string>
+    <string name="tab_mylist">Mi lista</string>
+    <string name="tab_live">TV</string>
+
+    <string name="row_continue">Seguir viendo</string>
+    <string name="row_mylist">Mi lista</string>
+    <string name="row_recent">Añadido recientemente</string>
+    <string name="because_you_watched">Porque viste «%1$s»</string>
+
+    <string name="home_empty">Aquí aparecerá lo que dejes a medias. Empieza por Películas o Series.</string>
+    <string name="home_episode">T%1$d E%2$d</string>
+    <string name="home_next_episode">Siguiente: T%1$d E%2$d</string>
+    <string name="home_minutes_left">quedan %1$d min</string>
+    <string name="home_minutes">%1$d min</string>
+    <string name="continue_forget">¿Quitar «%1$s» de Seguir viendo?</string>
+    <string name="continue_forget_note">Volverá a aparecer si lo reproduces otra vez.</string>
+    <string name="remove">Quitar</string>
+    <string name="cancel">Cancelar</string>
+
+    <string name="no_provider">Esta copia no trae ninguna cuenta configurada. Escribe los datos del proveedor y el catálogo empezará a descargarse.</string>
+
+    <string name="settings">Ajustes</string>
+    <string name="settings_people">Usuarios</string>
+    <string name="settings_people_detail">Quién usa este aparato, y quién ve solo contenido infantil.</string>
+    <string name="settings_account">Configuración</string>
+    <string name="settings_account_detail">Los datos del proveedor: servidor, usuario, contraseña y User-Agent.</string>
+    <string name="settings_add_person">Añadir</string>
+    <string name="settings_children">Infantil</string>
+    <string name="settings_name_hint">Nombre</string>
+    <string name="settings_host">Servidor</string>
+    <string name="settings_user">Usuario</string>
+    <string name="settings_password">Contraseña</string>
+    <string name="settings_agent">User-Agent</string>
+    <string name="settings_need_someone">Tiene que quedar al menos un usuario.</string>
+    <string name="settings_need_name">Ningún usuario puede quedarse sin nombre.</string>
+    <string name="settings_same_name">Hay dos usuarios con el mismo nombre.</string>
+    <string name="settings_too_many">Como mucho tres usuarios.</string>
+    <string name="settings_need_all">No puede quedar ningún campo vacío.</string>
+    <string name="save">Guardar</string>
+    <string name="building_catalog">Preparando el videoclub…</string>
+    <string name="building_catalog_percent">%1$d %%</string>
+    <string name="building_catalog_note">Se descarga una sola vez y tarda unos minutos. Mientras tanto ya puedes ver la TV en directo.</string>
+    <string name="catalog_empty">Todavía no hay nada descargado.</string>
+    <string name="sync_failed">No se ha podido actualizar el catálogo.</string>
+    <string name="retry">Reintentar</string>
+
+    <string name="search_hint">Título, saga, actor…</string>
+    <string name="profile_question">¿Quién está viendo?</string>
+    <string name="search_empty">Sin resultados para «%1$s».</string>
+    <string name="search_prompt">Escribe para buscar entre 33.000 títulos.</string>
+
+    <string name="play">Reproducir</string>
+    <string name="resume">Seguir en %1$s</string>
+    <string name="add_to_list">Mi lista</string>
+    <string name="add_to_list_long">Añadir a Mi lista</string>
+    <string name="remove_from_list">Quitar de Mi lista</string>
+    <string name="open_title">Abrir</string>
+    <string name="in_list">En mi lista</string>
+    <string name="quality">Calidad</string>
+    <string name="seasons">Temporadas</string>
+    <string name="season">Temporada %1$d</string>
+    <string name="episode_label">%1$d. %2$s</string>
+    <string name="loading">Cargando…</string>
+    <string name="badge_series">Serie</string>
+    <string name="mylist_empty">Tu lista está vacía. Añade títulos desde su ficha.</string>
+    <string name="episodes_none">Esta serie no tiene episodios disponibles.</string>
+    <string name="minutes">%1$d min</string>
+    <string name="cast">Reparto: %1$s</string>
+    <string name="director">Dirección: %1$s</string>
+    <string name="playback_failed">No se ha podido reproducir.</string>
+    <string name="playback_unsupported">Este dispositivo no puede decodificar ninguna copia de este título.</string>
+    <string name="playback_switching">La copia %1$s no se puede decodificar aquí. Cambiando a %2$s…</string>
+    <string name="playback_audio_switched">Este dispositivo no puede decodificar el audio «%1$s». Cambiando a «%2$s».</string>
+    <string name="back">Volver</string>
+
+    <string name="live_loading_channels">Cargando canales…</string>
+    <string name="live_no_channels">No hay canales. Mantén pulsado OK para volver a cargarlos.</string>
+    <string name="live_starting">Sintonizando…</string>
+    <string name="live_channel_failed">Buscando otra señal…</string>
+    <string name="live_channel_dead">Este canal no está disponible ahora mismo.</string>
+    <string name="account_busy">La cuenta se está usando en otro aparato.</string>
+    <string name="live_no_guide">Sin guía para este canal.</string>
+    <string name="live_now">Ahora</string>
+    <string name="live_next">Después</string>
+    <string name="live_refreshing">Actualizando la lista de canales…</string>
+    <string name="live_refreshed">Lista actualizada: %1$d canales.</string>
+    <string name="live_refresh_failed">No se ha podido actualizar la lista de canales.</string>
+    <string name="live_dismiss_hint">Pulsa OK</string>
+    <string name="live_exit_title">¿Apagar la tele?</string>
+    <string name="live_exit_confirm">Sí, apagar</string>
+    <string name="live_exit_cancel">No, seguir viendo</string>
+</resources>

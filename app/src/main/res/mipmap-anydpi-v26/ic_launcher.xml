@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The cassette is line art on nothing: its own brightness is its alpha, so the launcher's mask
+    cuts the background and never a black rectangle. It sits at 54% of the 108dp canvas, which
+    keeps its corners inside the circle every mask can shrink to.
+
+    `monochrome` is the same artwork: neon tubes are already a single-weight outline, so the
+    themed-icon tint reads as a drawing rather than a blob.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/surface" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

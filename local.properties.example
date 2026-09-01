@@ -1,0 +1,61 @@
+# =============================================================================
+# local.properties — plantilla (esta sí va al repositorio)
+# =============================================================================
+#
+#   cp local.properties.example local.properties
+#
+# `local.properties` está en `.gitignore`. **Nunca escribas valores reales en
+# este fichero .example**: éste sí se sube.
+
+# El SDK de Android. Android Studio lo escribe solo.
+# sdk.dir=/home/tu-usuario/Android/Sdk
+
+# --- La cuenta del proveedor -------------------------------------------------
+# No está aquí, y eso es a propósito. La cuenta —servidor, usuario, contraseña,
+# User-Agent— vive en el documento alojado de cada casa, en el VPS, y en ningún
+# otro sitio. Por eso cambiar una contraseña es editar un fichero en un servidor
+# y no compilar e instalar un APK en el salón de otra persona.
+# Ver server/README.md.
+
+# --- Firma de release --------------------------------------------------------
+# Se genera una vez:
+#
+#   keytool -genkeypair -keystore keystore/videoclub-release.p12 \
+#           -storetype PKCS12 -alias videoclub \
+#           -keyalg RSA -keysize 4096 -validity 10000
+#
+# El APK instalado en un televisor sólo acepta actualizaciones firmadas con esta
+# misma clave. Si se pierde, ese aparato no se puede volver a actualizar nunca:
+# hay que ir en persona a desinstalar. Guarda el fichero **y la contraseña**
+# fuera de este disco.
+#
+# keystore.path=keystore/videoclub-release.p12
+# keystore.alias=videoclub
+# keystore.password=la-contraseña-de-la-keystore
+
+# --- El panel ----------------------------------------------------------------
+# Lo usa ./sync-casas.sh para traerse la lista de casas. Las credenciales son las
+# de la contraseña de nginx que protege /panel/.
+#
+# panel.url=https://tu-vps.example.org/panel
+# panel.user=tu-usuario
+# panel.password=tu-contraseña
+
+# --- Las casas ---------------------------------------------------------------
+# **No se escriben a mano**: las trae ./sync-casas.sh desde el panel, que es donde
+# nacen. Gradle genera un flavour por cada línea de éstas, así que cada casa
+# tiene su APK con su URL compilada dentro.
+#
+# Esa URL *es* la credencial: el documento lleva la contraseña del proveedor en
+# claro y no hay ningún login, de ahí el segmento largo y aleatorio.
+#
+# casa.vicente.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
+# casa.papa.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
+
+# --- Los aparatos, para ./deploy.sh ------------------------------------------
+# El nombre de cada televisor en el tailnet. Se declara por casa y no se hereda:
+# heredarlo significa que un `--casa` despistado instala en el televisor de otra
+# persona, y eso no lo arregla ningún mensaje de error posterior.
+#
+# casa.vicente.tv.adb.host=videoclub-salon
+# casa.vicente.tv.adb.port=5555

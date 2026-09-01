@@ -1,0 +1,43 @@
+# --- Secretos. Nada de esto sale de este disco --------------------------------
+#
+# `local.properties` lleva la contraseña de la keystore, la del panel y las URLs de los documentos
+# de cada casa — y esas URLs *son* la credencial: quien tiene una, tiene la cuenta del proveedor de
+# esa casa. Hay un `local.properties.example` con la forma, sin los valores.
+local.properties
+
+# La clave con la que se firman los release. Perderla significa no poder volver a actualizar ningún
+# televisor que ya tenga la app: Android rechaza una actualización firmada con otra clave. Guardarla
+# fuera de aquí (gestor de contraseñas) es parte del procedimiento, no una recomendación.
+/keystore/
+
+# --- Cosas que se generan -----------------------------------------------------
+.gradle/
+.kotlin/
+/build
+/app/build/
+/build-out/
+/captures
+.externalNativeBuild
+.cxx
+
+# El descodificador FFmpeg son 3,5 MB de binario que sale de `./build-ffmpeg-decoder.sh`. Un binario
+# reconstruible no gana nada por vivir en el historial, y lo ensucia para siempre.
+/app/libs/*.aar
+
+__pycache__/
+*.pyc
+
+# Capturas y registros de las pruebas en aparato: se rehacen en cada pasada y pesan más que el
+# proyecto entero.
+tests/e2e/artefactos/
+tests/e2e/.pendiente-*
+
+# --- Entorno de cada máquina --------------------------------------------------
+*.iml
+/.idea/
+.DS_Store
+
+# Configuración de las herramientas con las que se escribió esto, no del proyecto.
+/.claude/
+/.agents/
+/skills-lock.json
