@@ -101,9 +101,9 @@ class CatalogDatabase(context: Context) :
         db.execSQL(CREATE_PROGRESS)
         db.execSQL(CREATE_INDEX_PROGRESS_RECENT)
         db.execSQL(
-            // Sin `dirty` ni `deleted`: esta migración corre sobre una tabla de la versión 1, que
-            // no las tenía, y la tabla que crea las trae con su valor por defecto. La v5 se aplica
-            // después y pone `dirty` a 1 en todo, que es lo que hace falta aquí también.
+            // No `dirty` and no `deleted`: this migration runs over a version 1 table, which had
+            // neither, and the table it creates brings them with their defaults. v5 is applied
+            // afterwards and sets `dirty` to 1 on everything, which is what is needed here too.
             "INSERT INTO $TABLE_PROGRESS (title_id, episode_id, position_ms, duration_ms, updated_at) " +
                 "SELECT title_id, episode_id, position_ms, duration_ms, updated_at " +
                 "FROM ${TABLE_PROGRESS}_old"
@@ -120,16 +120,16 @@ class CatalogDatabase(context: Context) :
     }
 
     /**
-     * Versión 6: las mismas tres columnas en `watchlist`, y por las mismas razones.
+     * Version 6: the same three columns on `watchlist`, and for the same reasons.
      *
-     * Todo lo que ya había sale sucio: son filas de antes de que «Mi lista» se sincronizara, el
-     * servidor no las conoce, y el aparato que actualice primero es el que las sube. Su `updated_at`
-     * se toma de `added_at` en vez de del reloj de ahora, para que una lista guardada hace meses no
-     * gane a una decisión que otro aparato tomó ayer.
+     * Everything already there comes out dirty: those rows predate "My list" being synchronised, the
+     * server does not know them, and whichever device updates first is the one that uploads them.
+     * Their `updated_at` is taken from `added_at` rather than from the clock now, so that a list
+     * saved months ago does not beat a decision another device made yesterday.
      */
     private fun addListSyncColumns(db: SQLiteDatabase) {
-        // Comprobado y no dado por hecho, igual que en [addSyncColumns]: [CREATE_WATCHLIST] ya las
-        // trae, y la migración de la versión 2 reconstruye la tabla con él.
+        // Checked rather than assumed, exactly as in [addSyncColumns]: [CREATE_WATCHLIST] already
+        // carries them, and the version 2 migration rebuilds the table with it.
         val existing = db.rawQuery("PRAGMA table_info($TABLE_WATCHLIST)", null).use { cursor ->
             buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
         }
@@ -150,8 +150,8 @@ class CatalogDatabase(context: Context) :
         // 2: `profile` on the two user tables.
         // 3: `meta`, which is where the sync timestamp moved.
         // 4: `track`, the audio and the subtitles each person last watched a title in.
-        // 5: `dirty` y `deleted` en `progress`, para que el progreso viaje entre aparatos.
-        // 6: lo mismo en `watchlist`, más `updated_at`, para que «Mi lista» viaje igual.
+        // 5: `dirty` and `deleted` on `progress`, so progress travels between devices.
+        // 6: the same on `watchlist`, plus `updated_at`, so "My list" travels the same way.
         const val DATABASE_VERSION = 6
 
         const val TABLE_TITLE = "title"
@@ -232,15 +232,15 @@ class CatalogDatabase(context: Context) :
             """
 
         /**
-         * Lo que cada persona ha guardado para después.
+         * What each person has saved for later.
          *
-         * `added_at` es cuándo se guardó y es lo que ordena la lista en pantalla. `updated_at` es
-         * otra cosa: cuándo cambió la fila, quitar incluido, y es lo que decide quién gana cuando
-         * dos aparatos de la casa discrepan. Confundirlos haría que quitar algo no pudiera ganarle
-         * a haberlo guardado.
+         * `added_at` is when it was saved and is what orders the list on screen. `updated_at` is a
+         * different thing: when the row changed, removal included, and it is what decides who wins
+         * when two of the household's devices disagree. Confusing the two would mean removing
+         * something could never beat having saved it.
          *
-         * `profile` encabeza la clave por lo mismo que en [CREATE_PROGRESS]: una casa, un catálogo,
-         * y una lista distinta por persona.
+         * `profile` leads the key for the same reason as in [CREATE_PROGRESS]: one household, one
+         * catalogue, and a different list per person.
          */
         private val CREATE_WATCHLIST = """
             CREATE TABLE $TABLE_WATCHLIST (

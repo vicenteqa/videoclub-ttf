@@ -17,8 +17,8 @@ from dataclasses import dataclass
 PAQUETE = "com.videoclub.app"
 ACTIVIDAD = f"{PAQUETE}/.MainActivity"
 
-# Las tres escalas se ponen a 0 mientras dura la sesión: sin eso `uiautomator dump` se queda
-# esperando a que la ventana quede quieta y una pared de carteles nunca lo está del todo.
+# All three animation scales are set to 0 for the session: without that, `uiautomator dump` waits
+# for the window to settle and a wall of posters never quite does.
 ESCALAS = ("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
 
 
@@ -44,7 +44,7 @@ class Aparato:
     def __init__(self, nombre: str, serial: str, entrada: str):
         self.nombre = nombre
         self.serial = serial
-        # "dpad" o "toque". Sólo cambia cómo navegan las pruebas que no están probando la entrada.
+        # "dpad" or "toque". It only changes how the tests that are not testing input navigate.
         self.entrada = entrada
         self._escalas_previas: dict[str, str] = {}
         self._ajustes_previos: dict[str, str] = {}
@@ -52,9 +52,9 @@ class Aparato:
     # ------------------------------------------------------------------ adb
 
     def adb(self, *args: str, timeout: int = 120, check: bool = False) -> str:
-        # `errors="replace"` y no decodificación estricta: el registro del box trae bytes que no son
-        # UTF-8 —los mete algún servicio de Amlogic— y una tanda entera no puede caerse porque una
-        # línea que a nadie le importa esté mal codificada.
+        # `errors="replace"` rather than strict decoding: the box's log carries bytes that are not
+        # UTF-8 — some Amlogic service puts them there — and a whole run cannot fall over because a
+        # line nobody cares about is badly encoded.
         proc = subprocess.run(
             ["adb", "-s", self.serial, *args],
             capture_output=True, text=True, errors="replace", timeout=timeout,
@@ -75,7 +75,7 @@ class Aparato:
         time.sleep(1.5)
         return self.vivo()
 
-    # ------------------------------------------------------------------ sesión
+    # ------------------------------------------------------------------ session
 
     @property
     def _rescate(self) -> str:
@@ -86,9 +86,10 @@ class Aparato:
         for clave in ESCALAS:
             self._escalas_previas[clave] = self.sh(f"settings get global {clave}").strip()
             self.sh(f"settings put global {clave} 0")
-        # El salvapantallas del box se pone delante de la app a los pocos minutos, y una tanda dura
-        # más que eso: sin esto, la mitad de los casos afirman sobre el tiempo y la previsión del
-        # tiempo en vez de sobre el videoclub. Se apaga aquí y se devuelve al salir.
+        # The box's screensaver puts itself in front of the app after a few minutes, and a run lasts
+        # longer than that: without this, half the cases assert about the weather and the weather
+        # forecast instead of about the video shop. It is switched off here and restored on the way
+        # out.
         for clave, valor in (("screensaver_enabled", "0"), ("screensaver_activate_on_sleep", "0")):
             self._ajustes_previos[clave] = self.sh(f"settings get secure {clave}").strip()
             self.sh(f"settings put secure {clave} {valor}")
@@ -96,10 +97,10 @@ class Aparato:
             "settings get system screen_off_timeout"
         ).strip()
         self.sh("settings put system screen_off_timeout 1800000")
-        # Apuntado en disco antes de tocar nada, no sólo en memoria: si la tanda se interrumpe —una
-        # señal, un Ctrl-C, un portátil que se suspende— el proceso muere sin llegar a `restaurar` y
-        # el aparato se queda con las animaciones apagadas y sin salvapantallas. Con esto, la
-        # siguiente tanda lo devuelve al arrancar aunque nadie se acuerde.
+        # Written to disk before touching anything, not only held in memory: if the run is
+        # interrupted — a signal, a Ctrl-C, a laptop that suspends — the process dies without
+        # reaching `restaurar` and the device is left with animations off and no screensaver. With
+        # this, the next run puts it back at startup even if nobody remembers.
         with open(self._rescate, "w", encoding="utf-8") as apunte:
             json.dump({"escalas": self._escalas_previas, "ajustes": self._ajustes_previos}, apunte)
         self.despertar()
@@ -120,8 +121,8 @@ class Aparato:
 
     def restaurar(self) -> None:
         for clave, valor in self._escalas_previas.items():
-            # `null` es lo que contesta un ajuste que nunca se había escrito: se quita en vez de
-            # escribir la cadena "null", que es lo que dejaría el aparato peor que como estaba.
+            # `null` is what a setting that was never written answers: it is removed rather than
+            # writing the string "null", which would leave the device worse than it was found.
             if valor in ("", "null"):
                 self.sh(f"settings delete global {clave}")
             else:
@@ -189,7 +190,7 @@ class Aparato:
         self.sh(f"input tap {x} {y}")
 
     def escribir(self, texto: str) -> None:
-        # `input text` no admite espacios ni comillas: van escapados o por `%s`.
+        # `input text` accepts neither spaces nor quotes: they go escaped or through `%s`.
         seguro = texto.replace("%", "%%").replace(" ", "%s").replace("'", "")
         self.sh(f"input text '{seguro}'")
 

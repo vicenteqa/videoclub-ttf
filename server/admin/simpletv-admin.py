@@ -54,13 +54,12 @@ LEGACY_CONFIG = os.environ.get("SIMPLETV_ADMIN_CONFIG", "/etc/simpletv-admin.jso
 # else's business.
 WATCH_DIR = os.path.join(STATE_DIR, "visto")
 
-# La base pública de las URLs que este panel entrega a la compilación. Sólo se antepone a rutas que
-# ha generado él mismo.
+# The public base of the URLs this panel hands to the build. Only ever prepended to paths it
+# generated itself.
 #
-# Se configura con `SIMPLETV_ADMIN_BASE` en el servicio de systemd. El valor por defecto es un
-# marcador a propósito: si alguien olvida ponerla, las URLs salen visiblemente falsas en vez de
-# sutilmente equivocadas, que es la clase de fallo que se descubre semanas después en un APK que
-# nunca encontró su documento.
+# Set with `SIMPLETV_ADMIN_BASE` in the systemd unit. The default is a placeholder on purpose: if
+# somebody forgets to set it, the URLs come out visibly wrong instead of subtly wrong, which is the
+# kind of mistake discovered weeks later in an APK that never found its document.
 PUBLIC_BASE = os.environ.get("SIMPLETV_ADMIN_BASE", "https://tu-vps.example.org")
 
 # The two applications, and the only two directories a household may be created in. A generated
@@ -77,17 +76,17 @@ SHARED_FIELDS = ("url", "userAgent")
 # A report bigger than this is not a report. The body is two short fields.
 MAX_REPORT_BYTES = 1024
 
-# Cuántas cosas vistas se recuerdan por casa. Doscientas entradas de texto corto son unos pocos
-# kilobytes, y dan para meses de televisión: el límite existe para que el fichero no crezca sin
-# techo, no porque haga falta apretar.
+# How many watched things are remembered per household. Two hundred short text entries are a few
+# kilobytes and cover months of television: the limit exists so the file does not grow without a
+# ceiling, not because anything needs squeezing.
 WATCH_HISTORY = 200
 
-# El informe es leer-modificar-escribir, y llega por la misma vía que todo lo demás: un hilo por
-# petición. Sin esto, dos avisos seguidos de la misma casa pueden perder uno de los dos.
+# Reporting is read-modify-write, and it arrives the same way as everything else: one thread per
+# request. Without this, two reports in a row from the same household can lose one of the two.
 WATCH_LOCK = threading.Lock()
 
-# Lo mismo para el progreso: leer el contador, escribir las filas y guardar el contador nuevo tiene
-# que ser una sola cosa, o dos aparatos sincronizando a la vez se reparten el mismo número.
+# The same for progress: reading the counter, writing the rows and saving the new counter has to be
+# one single thing, or two devices syncing at once are handed the same number.
 SYNC_LOCK = threading.Lock()
 
 # Every change to the household list is read-modify-write, and this server answers requests on a
@@ -366,9 +365,9 @@ def _delete_house(house_id):
     save_houses([c for c in current if c["id"] != house_id])
     if os.path.exists(watch_path(house_id)):
         os.unlink(watch_path(house_id))
-    # El progreso sí se va, al contrario que el documento: el documento se queda para que un aparato
-    # que aún no se ha actualizado siga teniendo credenciales, y eso no aplica a dónde se quedó
-    # alguien en una serie. Volver a crear la casa con el mismo nombre empieza de cero.
+    # Progress does go, unlike the document: the document stays so that a device which has not been
+    # updated yet still has credentials, and that argument does not apply to where somebody got to in
+    # a series. Creating the household again under the same name starts from zero.
     try:
         sync_forget(house_id)
     except Exception:
@@ -380,15 +379,15 @@ def _delete_house(house_id):
 
 def apply_server(form):
     """
-    Guarda la sección Servidor, y la reparte por las casas.
+    Saves the Servidor section, and spreads it across the households.
 
-    Va aparte del formulario de cada casa a propósito: son dos cosas distintas y se tocan en
-    momentos distintos. La dirección cambia el día que el proveedor mueve el servidor, y ese día
-    hay que cambiarla en todas; una contraseña cambia para una casa sola. Un único botón para
-    ambas cosas obligaba a que todo estuviera bien para poder arreglar cualquier cosa.
+    Kept apart from each household's form deliberately: they are two different things touched at
+    different times. The address changes the day the supplier moves its server, and that day it has
+    to change everywhere; a password changes for one household alone. A single button for both meant
+    everything had to be right before anything could be fixed.
 
-    Devuelve (guardado, errores, avisos). Los avisos son casas que no se han podido actualizar:
-    el servidor sí se guardó, así que no es un fallo del formulario que hay en pantalla.
+    Returns (saved, errors, warnings). The warnings are households that could not be updated: the
+    server itself was saved, so it is not a failure of the form on screen.
     """
     url = form.get("url", [""])[0].strip().rstrip("/")
     agent = form.get("userAgent", [""])[0].strip()
@@ -404,8 +403,8 @@ def apply_server(form):
     for casa in houses():
         existing, _ = read_provider(casa["provider"])
         if existing is None:
-            # Aquí no hay los campos de esa casa, así que reescribir su documento entero lo
-            # dejaría sin credenciales. Se queda como está y se dice en voz alta.
+            # That household's fields are not here, so rewriting its whole document would leave it
+            # with no credentials. It is left as it is, and that is said out loud.
             avisos.append(
                 f"«{casa['nombre']}» tiene el fichero ilegible: guárdala desde su propia ficha."
             )
@@ -426,15 +425,15 @@ def apply_server(form):
 
 def send_channel(house_id, canal):
     """
-    Deja escrito en el documento de una casa que ponga un canal. Devuelve el problema, o None.
+    Writes into a household's document that it should tune to a channel. Returns the problem, or None.
 
-    Es un recado con fecha y no un ajuste: la app obedece una vez y la orden caduca sola a los diez
-    minutos. Por eso se escribe `cuando` — sin él, la caja saltaría a ese canal cada vez que releyera
-    el documento, para siempre.
+    It is a dated errand rather than a setting: the app obeys once and the order expires by itself
+    after ten minutes. Hence writing `cuando` — without it the box would jump to that channel every
+    time it re-read the document, forever.
 
-    Que llegue tarde o no llegue entra dentro de lo normal: la caja mira el documento cada dos
-    minutos mientras está encendida, y si está apagada no se entera de nada. Esto no promete una
-    entrega, ofrece una comodidad.
+    Arriving late or not arriving at all is within normal: the box looks at the document every two
+    minutes while it is switched on, and while it is off it learns nothing. This does not promise
+    delivery, it offers a convenience.
     """
     canal = (canal or "").strip()[:120]
     if not canal:
@@ -456,18 +455,19 @@ def send_channel(house_id, canal):
 
 def apply_house(house_id, form):
     """
-    Guarda una casa y sólo una. Devuelve (guardado, errores).
+    Saves one household and only one. Returns (saved, errors).
 
-    El servidor no se lee del formulario aunque llegue en él: se lee de su vista, que
-    es donde vive. Así una casa guardada no puede llevarse por delante la dirección de las demás.
+    The server is not read from this form even when it arrives in it: it is read from its own view,
+    which is where it lives. That way saving one household cannot take the address of all the others
+    down with it.
     """
     casa = next((c for c in houses() if c["id"] == house_id), None)
     if not casa:
         return False, ["Esa casa ya no está en la lista."]
 
     existing, _ = read_provider(casa["provider"])
-    # Un fichero que no parsea se reescribe entero en vez de fusionarse: fusionar sobre basura es
-    # como sobrevive media credencial a una reparación.
+    # A file that does not parse is rewritten whole rather than merged into: merging onto rubbish is
+    # how half a credential survives a repair.
     doc = dict(existing) if existing else {}
     prefix = casa["id"] + "."
 
@@ -481,10 +481,10 @@ def apply_house(house_id, form):
 
     errors = []
 
-    # El nombre de la casa vive en `casas.json`, no en su documento: es cómo la llamamos aquí, no
-    # algo que el televisor lea. Y sólo cambia el nombre — nunca el `id`, que es de donde sale el
-    # segmento secreto de su URL, el flavour de Gradle y la clave de `local.properties`. Renombrar
-    # una casa no puede obligar a recompilar su APK ni a ir a su salón a reinstalarlo.
+    # The household's name lives in `casas.json`, not in its document: it is what we call it here,
+    # not something the television reads. And only the name ever changes — never the `id`, which is
+    # where its URL's secret segment, its Gradle flavour and its `local.properties` key all come
+    # from. Renaming a household must never force its APK to be rebuilt or its living room revisited.
     nuevo_nombre = form.get(prefix + "casa.nombre", [""])[0].strip()
     if not nuevo_nombre:
         errors.append(f"«{casa['nombre']}» no puede quedarse sin nombre.")
@@ -570,9 +570,9 @@ def read_people(form, prefix, doc):
         people.append(person)
         next_id = max(next_id, person_id + 1)
 
-    # Las filas nuevas vienen numeradas — `perfil.nuevo.0`, `.1`, … — porque la página deja añadir
-    # varias de una vez. El número es sólo para emparejar cada nombre con su casilla de «infantil»
-    # y para respetar el orden en que se escribieron; el id de verdad se asigna aquí.
+    # New rows arrive numbered — `perfil.nuevo.0`, `.1`, … — because the page allows adding several
+    # at once. The number only pairs each name with its "children only" checkbox and preserves the
+    # order they were typed in; the real id is assigned here.
     marca = prefix + "perfil.nuevo."
     nuevas = []
     for clave, valores in form.items():
@@ -600,48 +600,47 @@ def read_people(form, prefix, doc):
     return people, next_id, None
 
 
-# --------------------------------------------------------------- dónde se quedó cada uno, y en qué
+# ------------------------------------------------------ where each person got to, and in what
 
-# El progreso de cada persona, compartido entre los aparatos de su casa.
+# Each person's progress, shared between the devices of their household.
 SYNC_DB = os.path.join(STATE_DIR, "progreso.db")
 
-# Un cuerpo mayor que esto no es una sincronización. Una casa con años de televisión encima manda
-# unos pocos cientos de filas la primera vez y una o dos después.
+# A body larger than this is not a sync. A household with years of television behind it sends a few
+# hundred rows the first time and one or two after that.
 MAX_SYNC_BYTES = 512 * 1024
 
-# Cuántas filas contesta como mucho un `GET`. Un aparato que lleva meses apagado se pone al día en
-# varias vueltas en vez de en una respuesta de varios megabytes.
+# The most rows a `GET` will answer with. A device switched off for months catches up over several
+# rounds rather than in one multi-megabyte answer.
 SYNC_PAGE = 500
 
 
 def sync_db():
     """
-    La base del progreso, creada al vuelo la primera vez que alguien la usa.
+    The progress database, created on the fly the first time anybody uses it.
 
-    ## Por qué la fila no lleva el identificador del título
+    ## Why the row does not carry the title's identifier
 
-    Cada aparato numera su catálogo por su cuenta: `title_id` es un `AUTOINCREMENT` que se reparte
-    según el orden en que llegan los listados del proveedor ese día. El 4711 de una tablet y el 4711
-    de un móvil son películas distintas. Sincronizar por ese número repartiría marcas de «seguir
-    viendo» por películas al azar.
+    Each device numbers its own catalogue: `title_id` is an `AUTOINCREMENT` handed out in whatever
+    order the supplier's listings arrived that day. A tablet's 4711 and a phone's 4711 are different
+    films. Syncing on that number would scatter "continue watching" marks across films at random.
 
-    Lo que sí es igual en los dos es `merge_key` — lo que funde sesenta listados de Blade Runner en
-    una obra — y el número de temporada y episodio. Eso es lo que viaja, y cada aparato lo traduce a
-    su numeración al recibirlo.
+    What *is* the same on both is `merge_key` — the thing that melts sixty Blade Runner listings into
+    one work — plus the season and episode numbers. That is what travels, and each device translates
+    it into its own numbering on arrival.
 
-    ## Por qué las filas no se borran
+    ## Why rows are never deleted
 
-    Quitar algo de «Seguir viendo» es una decisión, y tiene que llegar al otro aparato igual que
-    llega haber visto media película. Una fila borrada no se puede mandar, así que se marca.
+    Removing something from "Continue watching" is a decision, and it has to reach the other device
+    exactly as having watched half a film does. A deleted row cannot be sent, so it is marked.
 
-    ## Por qué «Mi lista» va en otra tabla y con el mismo contador
+    ## Why "Mi lista" is a separate table sharing one counter
 
-    Es otra cosa —guardar para después no tiene posición ni episodio— pero es el mismo libro: los
-    dos se leen con un solo cursor por aparato, así que las dos tablas comparten la secuencia de
-    `contador` de la casa. Un contador por tabla obligaría al aparato a llevar dos cursores y a que
-    los dos avanzaran bien por separado, que es el doble de sitios donde perder una fila.
+    It is a different thing — saving for later has no position and no episode — but it is the same
+    ledger: both are read with a single cursor per device, so the two tables share the household's
+    `contador` sequence. A counter per table would force the device to carry two cursors and to
+    advance both correctly on their own, which is twice as many places to lose a row.
 
-    `perfil` está en las dos por lo mismo: una casa, un catálogo, y una lista por persona.
+    `perfil` is in both for the same reason: one household, one catalogue, and one list per person.
     """
     conn = sqlite3.connect(SYNC_DB)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -681,7 +680,7 @@ def sync_db():
 
 
 def sync_pull(house_id, desde):
-    """Lo que ha cambiado en esa casa después del contador `desde`, progreso y lista."""
+    """What has changed in that household after the `desde` counter: progress and list."""
     with sync_db() as conn:
         filas = conn.execute(
             "SELECT perfil, obra, episodio, posicion, duracion, visto_en, borrado, contador "
@@ -697,10 +696,10 @@ def sync_pull(house_id, desde):
             "SELECT valor FROM secuencia WHERE casa = ?", (house_id,)
         ).fetchone()
 
-    # El contador que el aparato debe pedir la próxima vez. Si una de las dos páginas se ha llenado,
-    # es el de su última fila y no el tope: lo que falta se recoge en la siguiente vuelta. Y si se
-    # han llenado las dos, el menor de los dos, porque el cursor es uno solo y no puede ir más lejos
-    # de donde llega el libro que va más atrasado.
+    # The counter the device should ask from next time. If either page filled up, it is that page's
+    # last row rather than the ceiling: what is missing is collected on the next round. And if both
+    # filled up, the lower of the two, because there is one cursor and it cannot go further than the
+    # ledger that is furthest behind.
     limite = tope[0] if tope else 0
     if len(filas) == SYNC_PAGE:
         limite = min(limite, filas[-1][7])
@@ -713,9 +712,9 @@ def sync_pull(house_id, desde):
             {
                 "perfil": f[0], "obra": f[1], "episodio": f[2], "posicion": f[3],
                 "duracion": f[4], "visto_en": f[5], "borrado": bool(f[6]),
-                # El contador de cada fila y no sólo el del final: el aparato que recibe puede no
-                # saber colocar una obra todavía —su catálogo aún se está descargando— y necesita
-                # poder decir «he llegado hasta aquí» en vez de darlo todo por leído.
+                # Every row's counter and not only the final one: the receiving device may not be
+                # able to place a title yet — its catalogue is still downloading — and needs to be
+                # able to say "I got this far" instead of treating everything as read.
                 "contador": f[7],
             }
             for f in filas
@@ -732,15 +731,16 @@ def sync_pull(house_id, desde):
 
 def sync_push(house_id, filas):
     """
-    Guarda lo que manda un aparato. Gana la marca más reciente, no la más avanzada.
+    Stores what a device sends. The most recent stamp wins, not the furthest along.
 
-    Parece que debería ganar la posición más adelantada — si has visto media película en el móvil,
-    que la tele no te devuelva al principio. Pero eso hace imposible volver a ver algo: empezar de
-    cero una serie que terminaste el año pasado quedaría siempre pisado por el último episodio. La
-    hora del aparato decide, que es lo que hace que «lo último que hice» sea lo que vale.
+    It looks as though the furthest position ought to win — if you watched half a film on the phone,
+    the television should not send you back to the start. But that makes watching anything again
+    impossible: starting a series you finished last year from scratch would always be overruled by
+    the final episode. The writing device's clock decides, which is what makes "the last thing I did"
+    the thing that counts.
 
-    Devuelve cuántas filas se han aplicado; las viejas se descartan en silencio, que es lo normal
-    cuando dos aparatos se ponen al día a la vez.
+    Returns how many rows were applied; older ones are dropped silently, which is normal when two
+    devices catch up at the same time.
     """
     if not filas:
         return 0
@@ -798,11 +798,11 @@ def sync_push(house_id, filas):
 
 def sync_list_push(house_id, filas):
     """
-    Guarda lo que un aparato ha metido o sacado de «Mi lista». Gana la marca más reciente.
+    Stores what a device has added to or removed from "Mi lista". The most recent stamp wins.
 
-    La misma regla que [sync_push] y por lo mismo: quitar algo tiene que poder ganarle a haberlo
-    guardado, y guardarlo otra vez tiene que poder ganarle a haberlo quitado. Comparte la secuencia
-    de `contador` de la casa, así que los dos libros se leen con un solo cursor.
+    The same rule as [sync_push] and for the same reason: removing something has to be able to beat
+    having saved it, and saving it again has to be able to beat having removed it. It shares the
+    household's `contador` sequence, so both ledgers are read with one cursor.
     """
     if not filas:
         return 0
@@ -855,14 +855,14 @@ def sync_list_push(house_id, filas):
 
 
 def sync_forget(house_id):
-    """Se lleva el progreso y la lista de una casa cuando la casa se borra del panel."""
+    """Takes a household's progress and list with it when the household is deleted from the panel."""
     with SYNC_LOCK, sync_db() as conn:
         conn.execute("DELETE FROM progreso WHERE casa = ?", (house_id,))
         conn.execute("DELETE FROM lista WHERE casa = ?", (house_id,))
         conn.execute("DELETE FROM secuencia WHERE casa = ?", (house_id,))
 
 
-# ---------------------------------------------------------- cuándo se usó por última vez la cuenta
+# --------------------------------------------------------- when the account was last used
 
 ACTIVITY_PATH = os.path.join(STATE_DIR, "actividad.json")
 ACTIVITY_LOCK = threading.Lock()
@@ -871,12 +871,12 @@ ACTIVITY_LOCK = threading.Lock()
 MAX_LINEUP = 300
 
 ACCESS_LOG = "/var/log/nginx/access.log"
-# Cuánto hace falta haber visto a una app para darla por despierta. La consulta es cada dos minutos,
-# así que cinco deja pasar una perdida sin dar por muerta a una casa que está perfectamente.
+# How recently an app has to have been seen to count as awake. The check runs every two minutes, so
+# five lets one go missing without pronouncing a perfectly healthy household dead.
 APP_ALIVE_SECONDS = 5 * 60
-# Sólo el final del registro. Con seis casas consultando cada dos minutos son unas pocas decenas de
-# kilobytes por hora: leer el fichero entero en cada carga de la página sería pagar por un historial
-# que a esta pregunta no le sirve de nada.
+# Only the tail of the log. With six households checking every two minutes that is a few tens of
+# kilobytes an hour: reading the whole file on every page load would be paying for a history that is
+# of no use to this question.
 ACCESS_LOG_TAIL = 256 * 1024
 
 LOG_LINE = re.compile(
@@ -886,19 +886,19 @@ LOG_LINE = re.compile(
 
 def apps_awake():
     """
-    Qué documentos de casa se han pedido hace poco, por su ruta: `{ruta: epoch}`.
+    Which household documents have been asked for recently, by path: `{path: epoch}`.
 
-    Es la única señal honesta de que la app de una casa está despierta y **se enteraría** de un
-    recado. `active_cons` del proveedor no lo es: dice que la cuenta tiene un stream abierto, que
-    puede ser cualquier reproductor de cualquiera —y ése no lee nuestro documento— y a la vez se
-    queda corto con una app abierta sin reproducir, que sí lo lee.
+    This is the only honest signal that a household's app is awake and **would find out** about an
+    errand. The supplier's `active_cons` is not: it says the account has a stream open, which could
+    be anybody's player — and that one does not read our document — while it also falls short for an
+    app that is open but not playing, which does.
 
-    Tiene además una propiedad que sale gratis: un APK viejo sólo pide su documento al arrancar y al
-    encenderse la tele, así que no aparece aquí y su casa sale apagada. Que es la verdad — ése no
-    obedecería la orden aunque se la mandaran.
+    It has a property that comes for free, too: an old APK only asks for its document at launch and
+    when the television is switched on, so it does not appear here and its household shows as
+    disabled. Which is the truth — that one would not obey the order even if it were sent.
 
-    Devuelve None cuando el registro no se puede leer. No es lo mismo que «nadie está despierto», y
-    quien llama lo distingue.
+    Returns None when the log cannot be read. That is not the same as "nobody is awake", and the
+    caller tells the two apart.
     """
     try:
         tamano = os.path.getsize(ACCESS_LOG)
@@ -922,8 +922,8 @@ def apps_awake():
             marca = encaje.group("t")
             sello, desfase = marca.split()
             momento = calendar.timegm(time.strptime(sello, "%d/%b/%Y:%H:%M:%S"))
-            # La hora del registro lleva su huso pegado, y el del servidor no tiene por qué ser el
-            # mismo: sin descontarlo, dos husos de diferencia son dos horas de app «dormida».
+            # The log's timestamp carries its own offset, and the server's need not be the same:
+            # without subtracting it, two time zones apart is two hours of a "sleeping" app.
             signo = -1 if desfase.startswith("-") else 1
             momento -= signo * (int(desfase[1:3]) * 3600 + int(desfase[3:5]) * 60)
         except Exception:
@@ -939,11 +939,11 @@ def lineup_path(house_id):
 
 def read_lineup(house_id):
     """
-    Los canales que dice tener esta casa, o lista vacía.
+    The channels this household says it has, or an empty list.
 
-    Los manda la app, y es la única fuente honesta: el panel conoce los dos mil nombres crudos del
-    proveedor, no los rótulos que produce la curación de la app. Escribir aquí una copia de esas
-    reglas sería tenerlas en dos idiomas y verlas separarse con el tiempo.
+    The app sends them, and it is the only honest source: the panel knows the supplier's two thousand
+    raw names, not the labels the app's curation produces. Writing a copy of those rules here would
+    mean holding them in two languages and watching them drift apart.
     """
     try:
         with open(lineup_path(house_id), encoding="utf-8") as handle:
@@ -955,7 +955,7 @@ def read_lineup(house_id):
 
 
 def read_activity():
-    """Cuándo se vio por última vez cada casa en uso: `{casa: epoch}`."""
+    """When each household was last seen in use: `{household: epoch}`."""
     try:
         with open(ACTIVITY_PATH, encoding="utf-8") as handle:
             doc = json.load(handle)
@@ -966,17 +966,17 @@ def read_activity():
 
 def note_activity(house_id):
     """
-    Apunta que a esta casa se le acaba de ver una conexión abierta.
+    Notes that this household has just been seen with a connection open.
 
-    La fuente es `active_cons` del proveedor, y ahí está la gracia: vale **haya o no haya app
-    nuestra**. Una casa con un APK viejo que no informa de nada, o alguien mirando la cuenta desde
-    otro reproductor, cuentan igual. El proveedor no publica ningún «visto por última vez» —sólo
-    `created_at` y `exp_date`—, así que si se quiere esa fecha hay que ir anotándola.
+    The source is the supplier's `active_cons`, and that is the point: it works **whether or not our
+    app is involved**. A household on an old APK that reports nothing, or somebody watching the
+    account from another player, count just the same. The supplier publishes no "last seen" of its
+    own — only `created_at` and `exp_date` — so if that date is wanted it has to be recorded.
 
-    Lo que esto **no** es: un registro completo. Sólo se mira cuando alguien abre el panel, así que
-    una semana sin abrirlo es una semana sin apuntes. La fecha que sale de aquí es un suelo —«al
-    menos hasta entonces se usó»— y nunca un «no se usa desde». Se guarda como mucho una vez por
-    minuto, para no reescribir el fichero en cada carga de la página.
+    What this is **not**: a complete record. It is only looked at when somebody opens the panel, so a
+    week without opening it is a week without entries. The date coming out of here is a floor — "it
+    was in use at least until then" — and never a "unused since". It is written at most once a
+    minute, to avoid rewriting the file on every page load.
     """
     ahora = int(time.time())
     with ACTIVITY_LOCK:
@@ -989,11 +989,11 @@ def note_activity(house_id):
 
 def fecha_corta(epoch):
     """
-    Una fecha para leer de un vistazo, no para calcular con ella.
+    A date to be read at a glance, not to be calculated with.
 
-    Se resuelve en el servidor y no en el navegador —al revés que el «hace 3 min» del estado— porque
-    la tarjeta se dibuja entera aquí y no vale la pena que un dato que ya está escrito espere a que
-    corra JavaScript. El reloj es el del servidor, que es el mismo criterio de siempre.
+    Resolved on the server rather than in the browser — the opposite of the status line's "hace
+    3 min" — because the card is drawn whole here, and a value that is already known is not worth
+    making wait for JavaScript to run. The clock is the server's, which is the same rule as always.
     """
     ahora = int(time.time())
     minutos = max(0, (ahora - int(epoch)) // 60)
@@ -1012,11 +1012,11 @@ def fecha_corta(epoch):
 
 def last_used(house_id):
     """
-    Lo más reciente que se sepa de esta casa, venga de donde venga, o None si no se sabe nada.
+    The most recent thing known about this household, wherever it came from, or None if nothing is.
 
-    Dos fuentes con virtudes opuestas: lo que informa la app es exacto pero sólo existe si la casa
-    lleva un APK que informe, y lo que ve el panel vale para cualquier aparato pero sólo se apunta
-    cuando alguien mira. La más reciente de las dos es mejor que cualquiera por separado.
+    Two sources with opposite virtues: what the app reports is exact but only exists if the household
+    runs an APK that reports, and what the panel sees works for any device but is only recorded when
+    somebody looks. The more recent of the two beats either on its own.
     """
     visto = read_watch(house_id) or {}
     candidatos = [
@@ -1043,11 +1043,11 @@ def read_watch(house_id):
 
 def record_watch(house_id, que, tipo="canal"):
     """
-    Apunta lo que una casa dice que está viendo, sin olvidar lo anterior.
+    Notes what a household says it is watching, without forgetting what came before.
 
-    Guardaba sólo la última cosa, que es lo que necesita el rótulo de «Viendo». Con una lista se
-    puede además contestar a qué ve normalmente esta casa, que es una pregunta distinta y más útil
-    cuando el aparato está apagado. Cabe de sobra: son doscientas líneas de texto corto.
+    It used to keep only the latest thing, which is all the "Viendo" line needs. With a list it can
+    also answer what this household usually watches, which is a different and more useful question
+    when the device is switched off. It fits easily: two hundred lines of short text.
 
     Repetir lo mismo no crea una entrada nueva, sólo mueve su hora: la app ya no vuelve a informar
     de un canal mientras siga puesto, así que un repetido seguido sólo pasa al reiniciarse.
@@ -1071,9 +1071,9 @@ def record_watch(house_id, que, tipo="canal"):
         })
 
 
-# Cómo nombran los proveedores Xtream sus canales de adultos. Dos listas y no una porque no todas
-# las palabras se pueden buscar igual: «BRAZZERS» dentro de un nombre no es nada más que eso, pero
-# «SEX» suelto aparece dentro de palabras que no vienen a cuento, así que ésas se buscan enteras.
+# How Xtream suppliers name their adult channels. Two lists rather than one because not every word
+# can be searched for the same way: "BRAZZERS" inside a name is nothing but that, whereas a bare
+# "SEX" turns up inside words that have nothing to do with it, so those are matched whole.
 ADULTO_MARCAS = (
     "XXX", "BRAZZERS", "HUSTLER", "PLAYBOY", "PENTHOUSE", "DORCEL", "REDLIGHT", "RED LIGHT",
     "VIVID", "BANGBROS", "REALITY KINGS", "NAUGHTY", "PORN", "EROTIC", "EROTIK",
@@ -1087,24 +1087,24 @@ ADULTO = re.compile(
     )
 )
 
-# Cuántos días atrás mira el aviso de la ficha.
+# How many days back the warning on the household card looks.
 ADULTO_DIAS = 10
 
 
 def looks_adult(nombre):
     """
-    Si el nombre de un canal parece de contenido para adultos.
+    Whether a channel's name looks like adult content.
 
-    Es una heurística sobre el nombre y nada más: no hay categoría en lo que se apunta, sólo el
-    rótulo que el proveedor le puso al canal. Se equivocará alguna vez en ambos sentidos, y por eso
-    lo que enseña es un emoji en una ficha y no una acusación.
+    A heuristic on the name and nothing more: there is no category in what gets recorded, only the
+    label the supplier gave the channel. It will be wrong occasionally in both directions, which is
+    why what it shows is an emoji on a card rather than an accusation.
     """
     limpio = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
     return bool(ADULTO.search(limpio.upper()))
 
 
 def adult_recently(house_id, dias=ADULTO_DIAS):
-    """Si en lo apuntado de los últimos `dias` hay algo que lo parezca."""
+    """Whether anything recorded in the last `dias` days looks like it."""
     doc = read_watch(house_id) or {}
     desde = time.time() - dias * 86400
     for entry in doc.get("historial") or []:
@@ -1121,11 +1121,11 @@ def adult_recently(house_id, dias=ADULTO_DIAS):
 
 def watch_history(house_id):
     """
-    Lo apuntado, agrupado: lo último de cada cosa, y cuántas veces.
+    What was recorded, grouped: the latest of each thing, and how many times.
 
-    «Lo último» y «lo que más ve» son dos lecturas de la misma lista y ninguna de las dos sobra —
-    una dice qué está de moda esta semana en esa casa y la otra qué ponen siempre — así que cada
-    fila lleva las dos: cuándo fue la última vez y cuántas veces aparece.
+    "The latest" and "what they watch most" are two readings of the same list and neither is
+    redundant — one says what is popular in that household this week and the other what they always
+    put on — so every row carries both: when it last happened and how many times it appears.
     """
     doc = read_watch(house_id) or {}
     grupos = {"canal": {}, "serie": {}, "pelicula": {}}
@@ -1238,12 +1238,13 @@ def all_status():
     def one(casa):
         doc, _ = read_provider(casa["provider"])
         status = provider_status(doc or {})
-        # Una conexión abierta es la casa usándose, sea con nuestra app o con lo que sea. Se apunta
-        # al pasar, que es la única forma de tener una fecha de último uso sin depender del APK.
+        # An open connection is the household being used, whether with our app or with anything
+        # else. It is noted in passing, which is the only way to have a last-used date that does not
+        # depend on the APK.
         if (status.get("activas") or 0) > 0:
             note_activity(casa["id"])
-        # Sólo lo último, nunca la lista entera. Esto lo pide la página sola cada vez que se abre;
-        # lo que alguien ha estado viendo se manda cuando se pulsa «Qué ve» y no antes.
+        # Only the latest, never the whole list. The page asks for this by itself every time it is
+        # opened; what somebody has been watching is sent when "Qué ve" is pressed and not before.
         visto = read_watch(casa["id"])
         status["visto"] = (
             {"canal": visto["canal"], "desde": visto.get("desde")} if visto else None
@@ -1256,8 +1257,8 @@ def all_status():
 
 # --------------------------------------------------------------------------------------- the page
 
-# Dibujada aquí y no traída de ninguna parte: es la única de la página, son seis trazos, y una
-# hoja de iconos entera —o una petición a un CDN— para esto sería pagar mucho por muy poco.
+# Drawn here rather than fetched from anywhere: it is the only one on the page, it is six strokes,
+# and a whole icon sheet — or a request to a CDN — for this would be paying a lot for very little.
 PAPELERA = (
     "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
     "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
@@ -1271,21 +1272,21 @@ STYLE = r"""
   --text:#c8dbe4; --mute:#617785;
   --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono",Menlo,Consolas,"Roboto Mono",monospace;
 
-  /* Tres radios y cinco tamaños, y nada fuera de esta lista. Había trece tamaños de letra y seis
-     radios puestos a ojo, cada uno a dos centésimas del de al lado — diferencias que nadie ve por
-     separado pero que juntas hacen que la página parezca montada por partes. */
-  --r-sm:3px;    /* lo que se pulsa o se escribe: botones, campos */
-  --r-md:6px;    /* lo que informa: avisos */
-  --r-lg:14px;   /* lo que contiene: tarjetas, fichas */
+  /* Three radii and five sizes, and nothing outside this list. There used to be thirteen font sizes
+     and six radii set by eye, each two hundredths from its neighbour — differences nobody sees on
+     their own but which together make a page look assembled from parts. */
+  --r-sm:3px;    /* what gets pressed or typed into: buttons, fields */
+  --r-md:6px;    /* what informs: notices */
+  --r-lg:14px;   /* what contains: cards, dialogs */
 
-  --t-xs:.64rem; /* etiquetas y rótulos */
+  --t-xs:.64rem; /* labels and captions */
   --t-sm:.72rem; /* texto secundario */
   --t-md:.8rem;  /* filas de datos */
   --t-lg:.94rem; /* campos y nombres */
-  --t-xl:1rem;   /* títulos */
+  --t-xl:1rem;   /* headings */
 
-  /* Un solo anillo de foco para toda la página. Sin esto cada control heredaba el del navegador,
-     que en un tema oscuro es blanco y no se parece a nada de lo que hay alrededor. */
+  /* One focus ring for the whole page. Without this each control inherited the browser's, which on a
+     dark theme is white and looks like nothing else around it. */
   --foco:0 0 0 3px rgba(94,242,160,.16);
 }
 *{box-sizing:border-box}
@@ -1299,8 +1300,8 @@ body{
 }
 .wrap{max-width:680px;margin:0 auto;padding:0 1.1rem}
 
-/* En `:where()` para que no tenga peso: cualquier regla de más abajo sigue mandando sobre el resto
-   de propiedades, y esto sólo pone el anillo donde no había ninguno. */
+/* Inside `:where()` so it carries no weight: any rule further down still wins on every other
+   property, and this only puts a ring where there was none. */
 :where(a,button,input,select,textarea,[tabindex]):focus-visible{
   outline:1px solid var(--phos-dim);outline-offset:2px;box-shadow:var(--foco);
 }
@@ -1315,8 +1316,8 @@ h1{
 }
 .tag{color:var(--mute); font-size:var(--t-sm); letter-spacing:.2em; text-transform:uppercase}
 .live{margin-left:auto;display:flex;align-items:center;gap:.5rem;color:var(--phos-dim);font-size:var(--t-sm);letter-spacing:.18em}
-/* El paso de una vista a la otra. Un enlace y no un botón: es navegación, no una acción, así que
-   debe poder abrirse en otra pestaña y sobrevivir a que el JavaScript no cargue. */
+/* The way from one view to the other. A link and not a button: it is navigation, not an action, so
+   it must open in another tab and survive JavaScript failing to load. */
 .ir{
   background:transparent;border:1px solid var(--line);color:var(--mute);text-decoration:none;
   font:inherit;font-size:var(--t-xs);letter-spacing:.16em;text-transform:uppercase;
@@ -1396,9 +1397,10 @@ button.mas:hover{color:var(--phos);border-color:var(--phos-dim)}
 }
 .bolita.gris{background:var(--mute);opacity:.5}
 
-/* --- La rejilla de casas ----------------------------------------------------------------------
-   Una tarjeta por casa y nada más que quepa de un vistazo: el nombre, si está en marcha y qué hay
-   puesto. Todo lo demás —la cuenta, la gente, el historial— vive dentro y se abre al pulsarla. */
+/* --- The household grid ------------------------------------------------------------------------
+   One card per household and nothing more than fits at a glance: the name, whether it is running and
+   what is on. Everything else — the account, the people, the history — lives inside and opens when
+   the card is pressed. */
 .casas{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .tarjeta{
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
@@ -1408,33 +1410,33 @@ button.mas:hover{color:var(--phos);border-color:var(--phos-dim)}
 .tarjeta::before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:var(--phos-dim);opacity:.55}
 .tarjeta:hover{border-color:var(--phos-dim)}
 .tarjeta:focus-visible{outline:0;border-color:var(--phos);box-shadow:0 0 0 3px rgba(94,242,160,.09)}
-/* Capitalizado y no en mayúsculas: son nombres de personas y de casas, no rótulos. */
+/* Capitalised rather than upper-cased: these are people's and households' names, not labels. */
 .tarjeta h2{margin:0 0 .1rem;font-size:var(--t-lg);letter-spacing:.02em;color:var(--text)}
 .tarjeta .que{font-size:var(--t-xs);color:#465a67;margin:0 0 .55rem;letter-spacing:.12em;text-transform:uppercase}
-/* Una fila reservada: el estado llega después de dibujar la página, y sin esto la rejilla entera
-   da un salto cuando contestan los proveedores. Ahora es una sola línea —el «viendo»— porque la
-   caducidad se mudó a la ficha, así que se guarda el hueco de una. */
+/* One reserved row: the status arrives after the page is drawn, and without this the whole grid
+   jumps when the suppliers answer. It is one line now — the "viendo" one — because the expiry date
+   moved into the dialog, so only one line's worth of space is held. */
 .tarjeta .hoja{padding-top:0;min-height:1.6rem}
-/* En la tarjeta, el estado va como una línea suelta y no como etiqueta + valor. Con tres tarjetas
-   por fila no caben las dos columnas —«VIENDO» se lleva un tercio del ancho y parte el texto en
-   dos renglones— y la etiqueta tampoco hacía falta: si está en marcha lo dice la bolita. */
+/* On the card the status is a loose line rather than label + value. With three cards to a row the
+   two columns do not fit — "VIENDO" takes a third of the width and breaks the text over two lines —
+   and the label was not needed anyway: whether it is running is what the dot says. */
 .tarjeta .linea{font-size:var(--t-sm);color:var(--mute);line-height:1.35}
 .tarjeta .linea.bien{color:var(--phos)}
 .tarjeta .linea.mal{color:var(--alarm)}
-/* La etiqueta en una línea y el valor el que necesite. Al revés —que es lo que pasa por omisión—
-   «Lo último» se parte en dos y la tarjeta crece un renglón por un título de dos palabras. */
+/* The label on one line and the value on as many as it needs. The other way round — which is the
+   default — "Lo último" breaks in two and the card grows a line over a two-word title. */
 .tarjeta .fila{align-items:baseline}
 .tarjeta .k{white-space:nowrap}
 
-/* --- La ficha, en modal ------------------------------------------------------------------------
-   <dialog> de verdad: el navegador ya sabe cerrar con Esc, atrapar el foco dentro y pintar el velo.
-   Salen del servidor con `open` a propósito, y es JavaScript quien las cierra al cargar — así, si
-   el guion no llega, la página se queda con todas las fichas desplegadas en línea, que es feo pero
-   se puede seguir usando. Un panel donde no se pueda cambiar una contraseña no sirve de nada. */
-/* Clavada arriba en vez de centrada. Centrada, cada pestaña con un alto distinto movía la ficha
-   entera —cabecera, pestañas y todo— y había que ir a buscar con el ratón la pestaña siguiente,
-   que acababa de irse de debajo del puntero. Con el margen de arriba fijo, lo que crece o mengua
-   lo hace hacia abajo y nada de lo que se pulsa se mueve. */
+/* --- The dialog ---------------------------------------------------------------------------------
+   A real <dialog>: the browser already knows how to close on Esc, trap focus inside and paint the
+   backdrop. They come from the server with `open` on purpose, and it is JavaScript that closes them
+   on load — so if the script never arrives, the page is left with every dialog expanded inline,
+   which is ugly but still usable. A panel where a password cannot be changed is no use at all. */
+/* Pinned to the top rather than centred. Centred, every tab with a different height moved the whole
+   dialog — header, tabs and all — and the next tab had to be chased with the mouse, having just
+   slid out from under the pointer. With the top margin fixed, whatever grows or shrinks does so
+   downwards and nothing you press moves. */
 dialog.ficha{
   width:min(620px,calc(100vw - 2rem));max-height:calc(100vh - 12vh);
   margin:6vh auto auto;
@@ -1442,9 +1444,9 @@ dialog.ficha{
   background:var(--panel);color:var(--text);border:1px solid var(--line);
 }
 dialog.ficha::backdrop{background:rgba(3,7,10,.78)}
-/* Al abrirla, el foco cae en la propia ficha y el navegador le pinta su anillo blanco alrededor
-   del marco entero. El anillo es útil, pero sobre el control que tiene el foco, no sobre la caja
-   que lo contiene: dentro hay campos y botones que ya traen el suyo. */
+/* On opening, focus lands on the dialog itself and the browser paints its white ring around the
+   entire frame. The ring is useful, but around the control that has focus, not the box containing
+   it: inside there are fields and buttons that bring their own. */
 dialog.ficha:focus,dialog.ficha:focus-visible{outline:none}
 dialog.ficha[open]:not(:modal){
   position:static;margin:0 0 1rem;width:auto;max-height:none;
@@ -1453,15 +1455,15 @@ dialog.ficha[open]:not(:modal){
 .cabeza h2{margin:0;flex:1;font-size:var(--t-xl);letter-spacing:.02em;color:var(--text)}
 .cerrar{
   background:transparent;border:1px solid var(--line);color:var(--mute);font:inherit;
-  /* 2.4rem ≈ 38px. La guía pide 44 para el dedo; en una cabecera de 3rem eso deja la cruz
-     tocando los bordes, así que se queda en 38 con espacio muerto alrededor que no compite con
-     nada más pulsable. */
+  /* 2.4rem ≈ 38px. The guidelines ask for 44 for a finger; in a 3rem header that leaves the cross
+     touching the edges, so it stays at 38 with dead space around it that competes with nothing
+     else pressable. */
   font-size:var(--t-md);line-height:1;width:2.4rem;height:2.4rem;border-radius:50%;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
 }
 .cerrar:hover{color:var(--text);border-color:var(--phos-dim)}
-/* Reserva el renglón de la caducidad antes de que llegue, para que la hoja de «Cuenta» ya se mida
-   con él puesto y la ficha no crezca cuando conteste el proveedor. */
+/* Reserves the expiry line before it arrives, so the "Cuenta" sheet is measured with it in place
+   and the dialog does not grow when the supplier answers. */
 .cuentaestado{min-height:1.7rem;margin-top:.4rem}
 dialog.ficha .pestanas{margin:1rem 1.15rem 0}
 dialog.ficha .hoja{padding:1.15rem}
@@ -1477,9 +1479,9 @@ dialog.ficha .acciones{margin:0 1.15rem 1.15rem}
 }
 .pes:hover{color:var(--text)}
 .pes.activa{color:var(--phos);border-bottom-color:var(--phos-dim)}
-/* Una pestaña que no lleva a ninguna parte se ve apagada desde la barra, sin abrirla. El `title`
-   dice por qué, que es lo que el gris solo no cuenta. `:hover` aparte, o seguiría iluminándose al
-   pasar por encima y prometiendo lo que no va a hacer. */
+/* A tab that leads nowhere looks switched off from the bar, without opening it. The `title` says
+   why, which is what the grey alone does not tell. `:hover` handled separately, or it would keep
+   lighting up under the pointer and promising what it will not do. */
 .pes:disabled{color:#33454f;cursor:not-allowed}
 .pes:disabled:hover{color:#33454f}
 .hoja{padding-top:.85rem;min-height:2.4rem}
@@ -1491,14 +1493,14 @@ dialog.ficha .acciones{margin:0 1.15rem 1.15rem}
 .visto .cuando{color:var(--mute);font-size:var(--t-xs);white-space:nowrap;letter-spacing:.06em}
 
 .url{font-size:var(--t-xs);color:#465a67;word-break:break-all;margin:.9rem 0 0}
-/* Rojo de salida y no sólo al pasar por encima: es el único botón de la página que no se puede
-   deshacer, y a un icono sin palabra hay que dejarle el color diciendo de qué va. */
+/* Red from the start rather than only on hover: it is the page's one button that cannot be undone,
+   and an icon with no word beside it needs the colour to say what it is about. */
 .retirar{
   background:transparent;border:1px solid var(--line);color:var(--alarm);
   display:flex;align-items:center;justify-content:center;
-  /* `stretch` y no un relleno a ojo: los dos botones de esta fila tienen tipografías distintas
-     —uno lleva texto y el otro un dibujo— así que cuadrar los altos con `padding` sale mal en
-     cuanto cambia una fuente. Que lo decida la fila. */
+  /* `stretch` rather than padding set by eye: the two buttons in this row have different typography
+     — one carries text and the other a drawing — so matching their heights with `padding` goes
+     wrong the moment a font changes. Let the row decide. */
   align-self:stretch;padding:0 .85rem;border-radius:var(--r-sm);cursor:pointer;opacity:.72;
   transition:opacity .16s,border-color .16s,background .16s;
 }
@@ -1508,8 +1510,8 @@ dialog.ficha .acciones{margin:0 1.15rem 1.15rem}
   display:flex;align-items:center;gap:.7rem;margin-top:1.2rem;
   padding-top:1.05rem;border-top:1px dashed var(--line);
 }
-/* `display:flex` le gana al `display:none` que el navegador le pone a cualquier cosa con `hidden`,
-   así que esconder esta fila en la pestaña de sólo mirar no hacía absolutamente nada. */
+/* `display:flex` beats the `display:none` the browser puts on anything with `hidden`, so hiding
+   this row on the read-only tab did absolutely nothing. */
 .acciones[hidden]{display:none}
 button.save{
   flex:1;padding:.8rem;background:var(--phos);color:#04150c;border:0;border-radius:var(--r-sm);
@@ -1517,20 +1519,20 @@ button.save{
   transition:filter .16s, transform .06s;
 }
 button.save:hover{filter:brightness(1.12)}
-/* Todo lo que se pulsa se hunde un pixel. Antes sólo lo hacían «Guardar» y las tarjetas, así que
-   media página respondía al dedo y la otra media parecía muerta. */
+/* Everything pressable sinks by a pixel. Only "Guardar" and the cards used to, so half the page
+   answered to a finger and the other half looked dead. */
 button:active:not(:disabled),.tarjeta:active{transform:translateY(1px)}
-/* `not-allowed` y no `default`: el botón cambia de color y de texto a «Sin cambios», pero es el
-   cursor el que lo dice antes de llegar a leerlo. */
+/* `not-allowed` rather than `default`: the button changes colour and its text to "Sin cambios", but
+   it is the cursor that says so before anyone gets as far as reading it. */
 button.save:disabled{
   background:transparent;color:var(--mute);border:1px solid var(--line);
   cursor:not-allowed;filter:none;transform:none;
 }
 
-/* El «guardado» no es algo que haya que leer: es algo que hay que ver y olvidar. Ocupaba una
-   franja arriba del todo que empujaba el formulario hacia abajo justo después de tocarlo, y en el
-   móvil dejaba el campo que acababas de editar fuera de la pantalla. Los errores siguen siendo
-   .msg, porque ésos sí hay que leerlos y no deben irse solos. */
+/* The "saved" notice is not something to read: it is something to see and forget. It used to be a
+   band at the very top that pushed the form down right after it had been touched, and on a phone it
+   left the field just edited off the screen. Errors are still .msg, because those do have to be read
+   and must not leave on their own. */
 .toasts{
   position:fixed;left:50%;transform:translateX(-50%);bottom:1.7rem;z-index:20;
   display:flex;flex-direction:column;align-items:center;gap:.5rem;
@@ -1544,8 +1546,9 @@ button.save:disabled{
   opacity:0;animation:toast 3.4s cubic-bezier(.2,.85,.25,1) forwards;
 }
 .toast b{font-weight:700}
-/* Los rojos no se van solos: hay que leerlos. Se quitan pulsándolos, y para eso hacen falta los
-   punteros que la pila de avisos deja pasar de largo. */
+/* The red ones do not leave on their own: they have to be read. They are dismissed by pressing
+   them, and for that they need the pointer events the notice stack otherwise lets straight through.
+   */
 .toast.mal{
   border-color:var(--alarm);border-left-color:var(--alarm);color:var(--alarm);
   box-shadow:0 12px 34px rgba(0,0,0,.6),0 0 22px rgba(255,107,107,.14);
@@ -1571,9 +1574,9 @@ button.save:disabled{
 .msg ul{margin:.45rem 0 0;padding-left:1.1rem}
 .msg code{color:var(--text);word-break:break-all}
 
-/* Dar de alta una casa se hace tres veces en la vida, así que en la portada es una línea y no un
-   formulario. De trazo discontinuo y del mismo redondeo que las tarjetas: se lee como el hueco
-   donde iría la siguiente. */
+/* Adding a household happens three times in a lifetime, so on the front page it is one line rather
+   than a form. Dashed, and with the same corner radius as the cards: it reads as the gap where the
+   next one would go. */
 .nueva{
   width:100%;display:flex;align-items:center;justify-content:center;gap:.6rem;
   padding:.95rem;background:transparent;border:1px dashed var(--line);border-radius:var(--r-lg);
@@ -1585,16 +1588,16 @@ button.save:disabled{
 """
 
 SCRIPT = r"""
-// Los nombres de canal y de película los escribe el proveedor, llegan por JSON y acaban en
-// innerHTML. Escapar aquí es la única barrera que hay en ese camino.
+// Channel and film names are written by the supplier, arrive as JSON and end up in innerHTML.
+// Escaping here is the only barrier anywhere along that path.
 function escapar(t){
   return String(t == null ? "" : t).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
   });
 }
 
-// La hora es la del servidor, no la del aparato: el reloj de un TV box de treinta euros no es algo
-// sobre lo que apoyar un «hace 12 min».
+// The clock is the server's, not the device's: the clock in a thirty-euro TV box is not something
+// to rest a "12 minutes ago" on.
 function hace(desde){
   var mins = Math.max(0, Math.round((Date.now()/1000 - desde) / 60));
   if (mins < 60) return 'hace ' + mins + ' min';
@@ -1603,12 +1606,13 @@ function hace(desde){
     {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 
-// Guardar sólo cuando haya algo que guardar. Empieza habilitado en el HTML y lo deshabilita esto:
-// al revés, un fallo de JavaScript dejaría una página en la que no se puede guardar nada.
+// Save only when there is something to save. It starts enabled in the HTML and this disables it:
+// the other way round, a JavaScript failure would leave a page where nothing can be saved.
 document.querySelectorAll('form.seccion').forEach(function(form){
-  // El del pie y no «el primero que haya»: la pestaña de «Poner canal» tiene su propio botón verde,
-  // y como cae antes en el documento, era ése el que esto encontraba — lo dejaba deshabilitado y
-  // rotulado «Sin cambios», que es exactamente lo que no hace: no guarda nada, manda un recado.
+  // The one in the footer, not "whichever comes first": the "Poner canal" tab has its own green
+  // button, and since it comes earlier in the document that is the one this used to find — leaving
+  // it disabled and labelled "Sin cambios", which is exactly what it does not do: it saves nothing,
+  // it sends an errand.
   var boton = form.querySelector('.acciones.pie button.save');
   if (!boton) return;
   var titulo = boton.textContent;
@@ -1619,9 +1623,9 @@ document.querySelectorAll('form.seccion').forEach(function(form){
     boton.disabled = !campos.some(function(i, n){ return valor(i) !== inicial[n]; });
     boton.textContent = boton.disabled ? 'Sin cambios' : titulo;
   }
-  // Los campos se apuntan de uno en uno y no de una sentada, porque las filas de persona pueden
-  // aparecer después: una fila recién creada arranca con su valor actual como el de partida, así
-  // que añadirla y no escribir nada no cuenta como un cambio pendiente de guardar.
+  // Fields are registered one at a time rather than all at once, because person rows can appear
+  // later: a freshly created row starts with its current value as its baseline, so adding one and
+  // typing nothing does not count as an unsaved change.
   function vigilar(i){
     if (i.type === 'hidden') return;
     campos.push(i); inicial.push(valor(i));
@@ -1665,25 +1669,25 @@ document.querySelectorAll('.pw button').forEach(function(b){
   });
 });
 
-// «Qué ve»: el historial se pide al pulsar y no antes. Es la única parte de la página que lee lo
-// que alguien ha estado viendo, y no tiene por qué salir a la vista de cualquiera que abra el
-// panel para cambiar una contraseña.
-// Un aviso rojo se queda hasta que se lea. Pulsarlo lo quita.
+// "Qué ve": the history is fetched on press and not before. It is the only part of the page that
+// reads what somebody has been watching, and there is no reason for it to be on show to anyone who
+// opens the panel to change a password.
+// A red notice stays until it is read. Pressing it dismisses it.
 document.querySelectorAll('.toast.mal').forEach(function(t){
   t.addEventListener('click', function(){ t.remove(); });
   t.title = 'Pulsa para descartar';
 });
 
-// Las fichas. Salen del servidor abiertas para que sin JavaScript la página siga siendo usable;
-// lo primero que hace esto es cerrarlas, y a partir de ahí las abre la tarjeta.
+// The dialogs. They come from the server open so that the page stays usable without JavaScript;
+// the first thing this does is close them, and from then on the card is what opens them.
 (function(){
   var fichas = document.querySelectorAll('dialog.ficha');
   if (!fichas.length) return;
 
-  // Medir antes de cerrar. Las fichas salen del servidor abiertas y en línea, así que éste es el
-  // único momento en que las tres hojas están puestas y se pueden medir: dándole a todas el alto
-  // de la más alta, cambiar de pestaña ya no mueve el pie de la ficha. La de «Qué ve» está vacía
-  // todavía —se rellena al abrirla— así que el mínimo sale de las dos que traen campos.
+  // Measure before closing. The dialogs come from the server open and inline, so this is the only
+  // moment when all the sheets are in place and can be measured: giving them all the height of the
+  // tallest means switching tabs no longer moves the dialog's footer. The "Qué ve" one is still
+  // empty — it is filled when opened — so the minimum comes from the two that carry fields.
   fichas.forEach(function(f){
     var hojas = f.querySelectorAll('.hoja');
     var alto = 0;
@@ -1693,8 +1697,8 @@ document.querySelectorAll('.toast.mal').forEach(function(t){
 
   fichas.forEach(function(f){ f.close(); });
 
-  // showModal cuando lo hay: es lo que atrapa el foco dentro, pinta el velo y hace que Esc cierre
-  // sin que haya que escribirlo. `open` a secas es el respaldo para lo que no lo tenga.
+  // showModal where it exists: it is what traps focus inside, paints the backdrop and makes Esc
+  // close without anyone writing that. A bare `open` is the fallback where it does not.
   function abrirFicha(f){
     if (!f) return;
     if (f.showModal) f.showModal(); else f.open = true;
@@ -1707,8 +1711,8 @@ document.querySelectorAll('.toast.mal').forEach(function(t){
   document.querySelectorAll('.tarjeta').forEach(function(t){
     var id = t.getAttribute('data-casa');
     t.addEventListener('click', function(){ abrir(id); });
-    // La tarjeta es un <article role=button>, así que el teclado hay que atenderlo a mano: un
-    // botón de verdad no puede envolver el bloque de estado sin romper el HTML.
+    // The card is an <article role=button>, so the keyboard has to be handled by hand: a real
+    // button cannot wrap the status block without breaking the HTML.
     t.addEventListener('keydown', function(e){
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(id); }
     });
@@ -1717,8 +1721,8 @@ document.querySelectorAll('.toast.mal').forEach(function(t){
   fichas.forEach(function(f){
     var cerrar = f.querySelector('[data-cerrar]');
     if (cerrar) cerrar.addEventListener('click', function(){ f.close(); });
-    // Pulsar el velo. El <dialog> recibe el click del velo como suyo, así que lo que distingue
-    // «fuera» de «dentro» es que el punto pulsado caiga fuera de su rectángulo.
+    // Pressing the backdrop. The <dialog> receives the backdrop's click as its own, so what tells
+    // "outside" from "inside" is whether the pressed point falls outside its rectangle.
     f.addEventListener('click', function(e){
       if (e.target !== f) return;
       var c = f.getBoundingClientRect();
@@ -1728,22 +1732,22 @@ document.querySelectorAll('.toast.mal').forEach(function(t){
     });
   });
 
-  // El botón de dar de alta abre su ficha, que es una más de éstas.
+  // The add button opens its own dialog, which is one more of these.
   var boton = document.querySelector('.nueva');
   var alta = document.getElementById('alta');
   if (boton && alta) boton.addEventListener('click', function(){ abrirFicha(alta); });
 
-  // Y si el alta falló, el servidor la marca para que se vuelva a abrir con el error dentro: con
-  // el velo puesto, un aviso en la banda de arriba de la página es un aviso que nadie ve.
+  // And if adding failed, the server marks it to reopen with the error inside: with the backdrop
+  // up, a notice in the band at the top of the page is a notice nobody sees.
   var marcada = document.querySelector('dialog.ficha[data-abrir]');
   if (marcada) abrirFicha(marcada);
 
-  // Al volver de guardar. El servidor redirige con #casa-<id> para dejarte donde estabas.
+  // On returning from a save. The server redirects with #casa-<id> to leave you where you were.
   if (location.hash.indexOf('#casa-') === 0) abrir(location.hash.slice(6));
 })();
 
-// Las pestañas de una ficha. Cada botón dice qué hoja enseña y la hoja es `<hoja>-<casa>`, así que
-// añadir una pestaña es añadir un botón y un div, sin tocar esto.
+// A dialog's tabs. Each button says which sheet it shows and the sheet is `<sheet>-<household>`, so
+// adding a tab is adding a button and a div, without touching this.
 document.querySelectorAll('.pestanas').forEach(function(barra){
   var id = barra.getAttribute('data-casa');
   var botones = barra.querySelectorAll('.pes');
@@ -1755,8 +1759,8 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
   var caja = hojas.uso;
   var pedido = false;
 
-  // «Qué ve» no tiene ni un campo: es una lista que se lee. Dejar ahí el botón de guardar era
-  // ofrecer una acción que no va con lo que se está mirando.
+  // "Qué ve" has not one field: it is a list to be read. Leaving the save button there offered an
+  // action that does not go with what is being looked at.
   var ficha = barra.closest('dialog');
   var acciones = ficha ? ficha.querySelector('.acciones.pie') : null;
 
@@ -1764,15 +1768,15 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
     Object.keys(hojas).forEach(function(nombre){
       if (hojas[nombre]) hojas[nombre].hidden = nombre !== cual;
     });
-    // Por atributo de la hoja y no por su nombre: así una pestaña nueva que no guarde nada —«Poner
-    // canal» es la segunda— sólo tiene que decirlo en su propio div, que es donde se sabe.
+    // By the sheet's attribute rather than by its name: that way a new tab that saves nothing —
+    // "Poner canal" is the second — only has to say so in its own div, which is where it is known.
     var hoja = hojas[cual];
     if (acciones) acciones.hidden = !!(hoja && hoja.hasAttribute('data-sin-guardar'));
   }
 
-  // El estado de partida lo pone esto y no el servidor, por lo mismo que las fichas salen abiertas:
-  // sin JavaScript las tres hojas se ven una debajo de otra, que es feo y se puede usar. Con él,
-  // aquí se esconden las dos que no toca antes de que a nadie le dé tiempo a verlas.
+  // The starting state is set here and not by the server, for the same reason the dialogs come out
+  // open: without JavaScript the sheets are seen one below another, which is ugly and usable. With
+  // it, the ones not in play are hidden here before anybody has time to see them.
 
   function grupo(titulo, lista){
     if (!lista || !lista.length) return '';
@@ -1810,15 +1814,16 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
       botones.forEach(function(otra){ otra.classList.toggle('activa', otra === pes); });
       var cual = pes.getAttribute('data-hoja');
       ensenar(cual);
-      // Sólo al mirarla. Es la única parte del panel que enseña lo que alguien ha estado viendo,
-      // y no tiene por qué salir a la vista de quien abre esto a cambiar una clave.
+      // Only when looked at. It is the only part of the panel that shows what somebody has been
+      // watching, and there is no reason for it to be on show to whoever opens this to change a
+      // password.
       if (cual === 'uso') pedirHistorial();
     });
   });
 });
 
-// El estado se pide aparte del render: consultar a los proveedores tarda lo que tarden sus
-// servidores, y el formulario no tiene por qué esperarles para aparecer.
+// The status is fetched separately from the render: asking the suppliers takes as long as their
+// servers take, and the form has no reason to wait for them to appear.
 (function(){
   var punto = document.getElementById('punto');
   var rotulo = document.getElementById('rotulo');
@@ -1833,7 +1838,7 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
            '<span class="v ' + (clase || '') + '">' + v + '</span></div>';
   }
 
-  // Lo de la tarjeta: una línea y ya. Ver `.tarjeta .linea`.
+  // What goes on the card: one line and no more. See `.tarjeta .linea`.
   function linea(v, clase){
     return '<div class="linea ' + (clase || '') + '">' + v + '</div>';
   }
@@ -1850,9 +1855,9 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
       var vence = document.getElementById('vence-' + id);
 
       if (d.error) {
-        // Ni verde ni roja: no es que no haya nadie viendo, es que no lo sabemos. Y por lo mismo el
-        // botón de mandar canal se queda como estaba: negar una acción por no haber podido
-        // preguntar sería convertir un fallo del proveedor en una limitación nuestra.
+        // Neither green nor red: it is not that nobody is watching, it is that we do not know. And
+        // for the same reason the send-a-channel button is left as it was: refusing an action
+        // because we could not ask would turn a supplier's failure into a limitation of ours.
         pinta(id, 'gris');
         caja.innerHTML = linea(escapar(d.error), 'mal');
         if (vence) vence.innerHTML = '';
@@ -1865,26 +1870,27 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
       if (enUso) viendo++;
       var html = '';
 
-      // Si hay alguien viendo cabe en una bolita, y ahí es donde va: es lo que se mira de un
-      // vistazo desde el otro lado de la mesa, y ocupaba una fila entera de texto.
+      // Whether somebody is watching fits in a dot, and that is where it goes: it is what gets
+      // glanced at from across the table, and it used to take a whole row of text.
       pinta(id, enUso ? 'viendo' : 'parada');
 
-      // Un informe viejo no describe lo que hay puesto ahora: la app avisa al quedarse en algo y
-      // no vuelve a decir nada, así que pasadas unas horas sólo sirve como «lo último que se vio».
+      // An old report does not describe what is on now: the app speaks up when it settles on
+      // something and then says nothing more, so after a few hours it only serves as "the last
+      // thing that was watched".
       var fresco = d.visto && (Date.now()/1000 - d.visto.desde) < 12 * 3600;
 
-      // El «qué» sólo cuando se sabe. Antes había una fila explicando por qué no se sabía, y era
-      // una línea de disculpa en la ficha de cada casa que todavía no ha informado nunca.
-      // El «qué» sólo cuando se sabe. Si está en marcha o parada no se escribe: lo dice la bolita
-      // del título, y repetirlo con palabras es una fila entera para no decir nada nuevo.
+      // The "what" only when it is known. There used to be a row explaining why it was not, and it
+      // was a line of apology on the card of every household that has never reported. Whether it is
+      // running or idle is not written either: the dot in the heading says that, and repeating it in
+      // words is a whole row saying nothing new.
       if (enUso && fresco) {
         html += linea(escapar(d.visto.canal) + ' · ' + hace(d.visto.desde), 'bien');
       } else if (d.visto) {
         html += linea(escapar(d.visto.canal) + ' · ' + hace(d.visto.desde));
       }
 
-      // La cuenta rechazada sí se queda en la tarjeta: es una alarma, no un dato, y la bolita no
-      // la distingue de una casa en reposo — las dos son rojas.
+      // A rejected account does stay on the card: it is an alarm, not a datum, and the dot does not
+      // tell it apart from an idle household — both are red.
       if (!vivo) html += linea('cuenta ' + escapar(d.estado || 'rechazada'), 'mal');
 
       caja.innerHTML = html;
@@ -1916,10 +1922,10 @@ def when(mtime):
 
 def shell(titulo, nav=""):
     """
-    Todo lo que hay antes del contenido, que es idéntico en las dos vistas.
+    Everything before the content, which is identical in both views.
 
-    La barra de estado va aquí y no sólo en la portada a propósito: lo que consulta es si los
-    proveedores contestan, que es exactamente de lo que trata la vista del servidor.
+    The status bar lives here rather than only on the front page deliberately: what it checks is
+    whether the suppliers answer, which is exactly what the server view is about.
     """
     return [
         "<!doctype html><html lang=es><head><meta charset=utf-8>",
@@ -1936,29 +1942,31 @@ def shell(titulo, nav=""):
 
 def alerts(errors=(), note=None, avisos=()):
     """
-    Todo lo que la página tiene que decir, como avisos flotantes.
+    Everything the page has to say, as floating notices.
 
-    Ninguno de estos mensajes es parte de la página: son la respuesta a algo que se acaba de
-    pulsar. Como bandas encima del contenido empujaban hacia abajo justo lo que se acababa de
-    tocar, y en el móvil dejaban fuera de pantalla el campo recién editado.
+    None of these messages is part of the page: they are the answer to something just pressed. As
+    bands above the content they pushed down the very thing that had just been touched, and on a
+    phone they left the field just edited off the screen.
 
-    Los verdes se van solos. Los rojos no: hay que leerlos, y se quitan pulsándolos.
+    The green ones leave on their own. The red ones do not: they have to be read, and they are
+    dismissed by pressing them.
     """
     fuera = []
     if note:
         fuera.append((note, ""))
     fuera += [(esc(e), "mal") for e in errors]
-    # Distinto de un error: esto sí se guardó. Lo que no se pudo fue repartirlo.
+    # Different from an error: this was saved. What could not be done was hand it out.
     fuera += [(esc(a), "mal") for a in avisos]
     return fuera
 
 
 def tail(guardado=None, toasts=()):
     """
-    El cierre. Se llama con el <div class=wrap> ya cerrado, porque los avisos van flotando encima.
+    The closing markup. Called with `<div class=wrap>` already closed, because the notices float
+    above it.
 
-    `guardado` no es texto del formulario —es «servidor» o el nombre de una casa que existe— pero
-    se escapa igual.
+    `guardado` is not text from the form — it is "servidor" or the name of a household that exists —
+    but it is escaped all the same.
     """
     fuera = list(toasts)
     if guardado:
@@ -1974,12 +1982,12 @@ def tail(guardado=None, toasts=()):
 
 def render_server(guardado=None, errors=(), avisos=()):
     """
-    La vista del servidor: la dirección y el User-Agent, y nada más.
+    The server view: the address and the User-Agent, and nothing else.
 
-    En su propia página y no en la portada porque son cosas de ritmos distintos. Las casas se tocan
-    a menudo —alguien cambia de contraseña, entra un sobrino nuevo— y esto se toca el día que el
-    proveedor mueve el servidor, que es una vez al año. Tenerlo arriba del todo de la portada era
-    poner lo que casi nunca cambia delante de lo que se viene a hacer.
+    On its own page rather than the front one because they move at different rhythms. Households are
+    touched often — somebody changes a password, a new nephew arrives — and this is touched the day
+    the supplier moves its server, which is once a year. Having it at the top of the front page put
+    what almost never changes in front of what people come here to do.
     """
     shared = server()
 
@@ -2020,21 +2028,22 @@ def render(guardado=None, errors=(), note=None, avisos=(), alta=()):
             "<div class=card><p class=hint>Ninguna todavía.</p></div>"
         )
     else:
-        # Las fichas van detrás de la rejilla y no dentro de ella: son <dialog>, y sin JavaScript
-        # salen desplegadas en línea — dentro de un grid quedarían repartidas por las columnas.
+        # The dialogs go after the grid rather than inside it: they are <dialog>s, and without
+        # JavaScript they come out expanded inline — inside a grid they would be spread across the
+        # columns.
         tarjetas, fichas = zip(*(render_house(casa) for casa in casas))
         out.append("<div class=casas>" + "".join(tarjetas) + "</div>")
         out.extend(fichas)
     out.append("</fieldset>")
 
     boton, ficha = render_alta(alta)
-    # Sin rótulo de sección encima: el botón ya dice lo que hace, y «Añadir casa» dos veces
-    # seguidas es una de las dos de más.
+    # No section heading above it: the button already says what it does, and "Añadir casa" twice in
+    # a row is one of the two too many.
     out.append("<fieldset>")
     out.append(boton)
     out.append("</fieldset>")
-    # Fuera del <fieldset> y de la rejilla, como las de las casas: es un <dialog>, y sin JavaScript
-    # sale desplegado en línea.
+    # Outside the <fieldset> and the grid, like the households' own: it is a <dialog>, and without
+    # JavaScript it comes out expanded inline.
     out.append(ficha)
     # Cierra el <div class=wrap> que abrió la cabecera.
     out.append("</div>")
@@ -2044,15 +2053,15 @@ def render(guardado=None, errors=(), note=None, avisos=(), alta=()):
 
 def render_alta(errors=()):
     """
-    Dar de alta una casa: el botón que se ve y la ficha que abre, igual que una casa cualquiera.
+    Adding a household: the button you see and the dialog it opens, exactly like any other household.
 
-    Ocupaba media portada estando debajo de todo y usándose tres veces en la vida. Ahora es una
-    línea, y los campos viven donde viven los de las demás — que además arregla de paso el botón
-    «VER»: la regla `.alta button` pintaba *todos* los botones de aquella rejilla, así que el que
-    va dentro del campo de contraseña salía grande y verde en vez de la pastilla gris de siempre.
+    It used to take up half the front page while sitting at the bottom and being used three times in
+    a lifetime. Now it is one line, and its fields live where everybody else's do — which also fixed
+    the "VER" button along the way: the `.alta button` rule painted *every* button in that grid, so
+    the one inside the password field came out large and green instead of the usual grey pill.
 
-    Los errores se pintan dentro y no en la banda de arriba: con la ficha abierta, el velo tapa la
-    página, así que un aviso ahí arriba es un aviso que nadie ve.
+    Errors are drawn inside rather than in the band at the top: with the dialog open the backdrop
+    covers the page, so a notice up there is a notice nobody sees.
     """
     campos = [
         f"<dialog class=ficha id=alta{' data-abrir' if errors else ''}>",
@@ -2073,8 +2082,9 @@ def render_alta(errors=()):
         "<div><label for=nombre>Nombre</label>"
         "<input type=text id=nombre name=nombre placeholder='Ej.: Casa del pueblo' required></div>"
     )
-    # Sin opción preseleccionada: cuál de las dos aplicaciones corre en esa casa decide qué campos
-    # tendrá y qué APK hay que llevarle, y no es algo que deba salir elegido por orden alfabético.
+    # No option preselected: which application runs in that household decides which fields it will
+    # have and which APK has to be taken to it, and that is not something that should come out chosen
+    # by alphabetical order.
     campos.append("<div><label for=app>Aplicación</label><select id=app name=app required>")
     campos.append("<option value='' selected disabled>elige…</option>")
     for key, meta in APPS.items():
@@ -2105,16 +2115,16 @@ def render_alta(errors=()):
 
 def render_house(casa):
     """
-    Una casa, en dos piezas: la tarjeta que se ve y la ficha que se abre al pulsarla.
+    One household, in two pieces: the card you see and the dialog that opens when you press it.
 
-    Se parten porque se leen en momentos distintos. Lo que se viene a mirar —quién está viendo algo
-    ahora— cabe en tres líneas y tiene que estar a la vista de las cuatro casas a la vez; lo que se
-    viene a cambiar —una contraseña, un sobrino nuevo— es de una casa sola y no debería obligar a
-    bajar por encima de las otras tres para llegar.
+    They are split because they are read at different moments. What people come to look at — who is
+    watching something right now — fits in three lines and has to be visible for all four households
+    at once; what people come to change — a password, a new nephew — belongs to one household alone
+    and should not require scrolling past the other three to reach.
 
-    La ficha se devuelve entera y ya escrita, no se pide después: son los mismos campos de siempre,
-    ya están en el servidor que dibuja la página, y una petición más sólo añadiría una espera y una
-    forma nueva de que esto no funcione.
+    The dialog is returned whole and already written rather than fetched afterwards: they are the
+    same fields as always, they are already on the server drawing the page, and one more request
+    would only add a wait and a new way for this to fail.
     """
     doc, mtime = read_provider(casa["provider"])
     broken = doc is None
@@ -2132,10 +2142,11 @@ def render_house(casa):
         )
 
     # --------------------------------------------------------------------------------- la tarjeta
-    # Debajo del nombre iba el de la aplicación. Sobra desde que sólo hay una: repetir «videoclub»
-    # en todas las tarjetas no distingue ninguna de ninguna. En ese hueco va ahora la última vez que
-    # se supo de la casa, que sí las distingue — y sólo cuando se sabe, porque una casa recién dada
-    # de alta no tiene ninguna y un «nunca» ahí se leería como una avería.
+    # The application's name used to sit under the household's. It is redundant now that there is
+    # only one: repeating "videoclub" on every card tells none of them apart. That slot now carries
+    # the last time anything was heard from the household, which does tell them apart — and only when
+    # it is known, because a freshly created household has none and a "never" there would read as a
+    # fault.
     usada = ""
     cuando = last_used(casa["id"])
     if cuando:
@@ -2144,8 +2155,8 @@ def render_house(casa):
             f"{esc(fecha_corta(cuando))}</p>"
         )
 
-    # La bolita nace gris: lo que hay o no hay en marcha lo contesta el proveedor, y eso llega
-    # después de que la página se dibuje. Gris es «todavía no lo sé», que es verdad al abrir.
+    # The dot starts grey: whether anything is running is answered by the supplier, and that arrives
+    # after the page is drawn. Grey means "I do not know yet", which is true on opening.
     tarjeta = (
         f"<article class=tarjeta tabindex=0 role=button data-casa='{ident}' "
         f"aria-haspopup=dialog aria-label='{esc(casa['nombre'])}'>"
@@ -2156,28 +2167,29 @@ def render_house(casa):
     )
 
     # ----------------------------------------------------------------------------------- la ficha
-    # Las dos pestañas que dependen de si la casa va en modo simple. Se sabe aquí, leyendo su
-    # documento, sin esperar a nadie.
+    # The two tabs that depend on whether the household runs in simple mode. It is known here, from
+    # reading its document, without waiting for anybody.
     #
-    # **Mandar un canal es sólo para las simples.** En una casa con videoclub, quien esté delante
-    # tiene mando y menús para cambiar de canal él mismo, y puede estar viendo una película — a la
-    # que una orden de sintonizar le caería encima sin venir a cuento. La caja simple es lo
-    # contrario: una tele que sólo hace canales y a la que hay que llegar desde fuera.
+    # **Sending a channel is for simple households only.** In a household with the video shop,
+    # whoever is sitting there has a remote and menus to change channel themselves, and may well be
+    # watching a film — which an order to tune would land on top of for no reason. The simple box is
+    # the opposite: a television that only does channels and has to be reached from outside.
     #
-    # **Y las personas son sólo para las que no lo son.** El modo simple no tiene selector de
-    # personas ni «Seguir viendo»: editar ahí una lista que nadie va a mirar es ofrecer un ajuste
-    # que no ajusta nada.
+    # **And people are for the ones that are not simple.** Simple mode has no profile picker and no
+    # "Continue watching": editing a list nobody is going to look at there is offering a setting that
+    # settles nothing.
     es_simple = bool(doc.get("simple"))
 
     canales_de_la_casa = read_lineup(casa["id"]) if es_simple else []
 
-    # Dos condiciones para poder mandarle un canal, y las dos se saben aquí: que la casa haya dicho
-    # qué canales tiene, y que su app esté despierta ahora mismo. Ver [apps_awake].
+    # Two conditions for being able to send it a channel, and both are known here: that the
+    # household has said which channels it has, and that its app is awake right now. See
+    # [apps_awake].
     despiertas = apps_awake() if es_simple else {}
     ruta_doc = urllib.parse.urlsplit(casa.get("url") or "").path
     if despiertas is None:
-        # El registro no se deja leer. Eso es un problema nuestro, no una respuesta sobre esta casa:
-        # se deja pasar, como con la bolita gris cuando el proveedor no contesta.
+        # The log will not be read. That is a problem of ours, not an answer about this household:
+        # it is let through, as with the grey dot when the supplier does not answer.
         despierta, motivo_dormida = True, ""
     else:
         visto_en = despiertas.get(ruta_doc, 0)
@@ -2210,8 +2222,8 @@ def render_house(casa):
         # otro, que es como «Retirar» acabó guardando.
         f"<form method=post action='borrar' id='borrar-{ident}'>"
         f"<input type=hidden name=casa value='{ident}'></form>",
-        # Igual que el de borrar, y por lo mismo: HTML no admite formularios anidados, así que vive
-        # aquí fuera y los controles de dentro se le atan con `form=`.
+        # Like the delete one, and for the same reason: HTML does not allow nested forms, so it
+        # lives out here and the controls inside are tied to it with `form=`.
         f"<form method=post action='poner' id='mandar-{ident}'>"
         f"<input type=hidden name=casa value='{ident}'></form>",
         f"<div class=cabeza><h2>{esc(casa['nombre'])}{aviso}</h2>"
@@ -2257,9 +2269,9 @@ def render_house(casa):
             "placeholder='Papá'></div>"
         )
     else:
-        # Sólo la tele en directo, como SimpleTV: sin videoclub, sin pestañas, sin selector de
-        # personas. Ausente en el documento significa videoclub completo, así que desmarcarla borra
-        # la clave en vez de escribir `false` — coherente con cómo se leen el resto de campos.
+        # Live television only, like SimpleTV: no video shop, no tabs, no profile picker. Absent
+        # from the document means the full video shop, so unticking it deletes the key rather than
+        # writing `false` — consistent with how every other field is read.
         checked = " checked" if doc.get("simple") else ""
         out.append(
             f"<div class=full><label class=nino>"
@@ -2267,9 +2279,9 @@ def render_house(casa):
             "(sólo televisión en directo, como SimpleTV)</label></div>"
         )
     out.append("</div>")
-    # Lo que contesta el proveedor sobre la cuenta. Se rellena solo, después de dibujar la página,
-    # y aquí y no en la tarjeta: la caducidad es un dato de la cuenta y se mira el día que se va a
-    # renovar, no cada vez que se abre el panel a ver quién está viendo algo.
+    # What the supplier answers about the account. Filled in by itself after the page is drawn, and
+    # here rather than on the card: the expiry date is an account detail, looked at on the day it is
+    # renewed and not every time the panel is opened to see who is watching something.
     out.append(f"<div class=cuentaestado id='vence-{ident}'></div>")
     out.append(f"<p class=url>{esc(casa['url'])}<br>Última escritura · {esc(when(mtime))}</p>")
     out.append("</div>")
@@ -2294,9 +2306,10 @@ def render_house(casa):
                 f"{checked}>infantil</label>"
             )
             out.append("</div>")
-        # Un hueco vacío de salida, y un botón que crea los que hagan falta. Con uno solo había que
-        # guardar entre una persona y la siguiente, que es justo lo que parecía «no me deja añadir
-        # más». El contenedor existe para que el botón sepa dónde meterlas.
+        # One empty slot to start with, and a button that creates as many more as are needed. With
+        # only one, a save was required between one person and the next, which is exactly what looked
+        # like "it will not let me add any more". The container exists so the button knows where to
+        # put them.
         out.append("<div class=nuevas><div class=persona>")
         out.append(f"<input type=text name='{prefix}perfil.nuevo.0' placeholder='añadir persona…'>")
         out.append(
@@ -2304,24 +2317,25 @@ def render_house(casa):
         )
         out.append("</div></div>")
         out.append(f"<button type=button class=mas data-prefijo='{prefix}'>+ otra persona</button>")
-        # Lo único que queda escrito: borrar a alguien se lleva su historial y no se deshace.
+        # The one thing left written down: deleting somebody takes their history and cannot be
+        # undone.
         out.append("<p class=hint>Sin nombre = fuera, con su historial.</p></div>")
     out.append("</div>")
 
     # --- pestaña: qué ve
-    # Dentro del formulario aunque no tenga campos, para que «Guardar» siga estando al pie de la
-    # ficha mire uno la pestaña que mire. Se rellena al abrirla y no antes: es la única parte del
-    # panel que enseña lo que alguien ha estado viendo.
-    # `data-sin-guardar` en las hojas que no guardan nada: es lo que le dice al guion que esconda el
-    # botón de «Guardar» al abrirlas. Antes ese comportamiento estaba escrito para la pestaña de
-    # «Qué ve» por su nombre, y añadir la de «Poner canal» lo habría dejado corto.
+    # Inside the form even though it has no fields, so that "Guardar" stays at the foot of the
+    # dialog whichever tab is being looked at. Filled when opened and not before: it is the only part
+    # of the panel that shows what somebody has been watching.
+    # `data-sin-guardar` on the sheets that save nothing: it is what tells the script to hide the
+    # "Guardar" button when they are opened. That behaviour used to be written against the "Qué ve"
+    # tab by name, and adding "Poner canal" would have left it short.
     out.append(f"<div class='hoja visto' id='uso-{ident}' data-sin-guardar></div>")
 
-    # --- pestaña: poner un canal (sólo en las casas simples)
+    # --- tab: send a channel (simple households only)
     #
-    # Se escribe sólo si arriba se le puso pestaña. El guion esconde las hojas que conoce por sus
-    # botones, así que una hoja sin botón no se escondería nunca: se quedaría a la vista, debajo de
-    # la pestaña activa, en todas las casas que no son simples.
+    # Written only if a tab was created for it above. The script hides the sheets it knows about
+    # through their buttons, so a sheet with no button would never be hidden: it would sit there in
+    # plain sight, below the active tab, in every household that is not simple.
     if es_simple:
         out.append(f"<div class=hoja id='poner-{ident}' data-sin-guardar>")
         if canales_de_la_casa:
@@ -2339,9 +2353,9 @@ def render_house(casa):
                 f"<button class=save type=submit form='mandar-{ident}'>Enviar</button></div>"
             )
         else:
-            # No se llega aquí con la pestaña encendida —sin lista nace apagada— pero la hoja se
-            # escribe igual: si algún día se enciende por otra vía, mejor que explique que que esté
-            # en blanco.
+            # This is not reachable with the tab enabled — with no list it starts disabled — but
+            # the sheet is written anyway: if it ever gets enabled by some other route, better that
+            # it explains itself than that it is blank.
             out.append(
                 "<p class=hint>Esta casa todavía no ha dicho qué canales tiene. Los manda la app al "
                 "abrir la televisión, así que hace falta que su aparato tenga una versión reciente y "
@@ -2349,20 +2363,22 @@ def render_house(casa):
             )
         out.append("</div>")
 
-    # `pie` lo distingue de la fila de acciones que ahora tiene también la pestaña de «Poner canal»:
-    # el guion busca ésta para esconderla, y `querySelector('.acciones')` le habría dado la otra,
-    # que aparece antes en el documento.
+    # `pie` distinguishes it from the action row the "Poner canal" tab now has as well: the script
+    # looks this one up in order to hide it, and `querySelector('.acciones')` would have handed it
+    # the other, which comes first in the document.
     out.append("<div class='acciones pie'>")
     out.append("<button class=save type=submit>Guardar</button>")
-    # Atado por `form=` al formulario de borrar que se escribió arriba, fuera de éste.
-    # Un icono y no una palabra, pero con `title` y `aria-label`: el dibujo dice de qué va y el
-    # texto dice qué hace exactamente, que en el único botón irreversible de la página importa.
+    # Tied by `form=` to the delete form written above, outside this one.
+    # An icon rather than a word, but with `title` and `aria-label`: the drawing says what it is
+    # about and the text says exactly what it does, which on the page's only irreversible button
+    # matters.
     #
-    # El aviso va en un `onclick` y no colgado desde el guion, para que siga preguntando aunque el
-    # guion no llegue: sin él, la única cosa de esta página que no se puede deshacer se haría de
-    # una pulsación. Y el mensaje se arma con `json.dumps`, que es lo que lo hace seguro — antes se
-    # metía el nombre entre comillas simples a pelo, y una casa llamada «O'Brien» partía la cadena
-    # de JavaScript en dos y dejaba el botón borrando sin preguntar nada.
+    # The confirmation lives in an `onclick` rather than being attached by the script, so that it
+    # keeps asking even if the script never arrives: without it, the one thing on this page that
+    # cannot be undone would take a single press. And the message is built with `json.dumps`, which
+    # is what makes it safe — it used to interpolate the name into single quotes bare, and a
+    # household called "O'Brien" split the JavaScript string in two, leaving the button deleting
+    # without asking anything.
     aviso = json.dumps(
         f"¿Borrar «{casa['nombre']}» del panel?\n\n"
         "Su documento se queda en el servidor a propósito, así que el aparato de esa casa sigue "
@@ -2465,8 +2481,8 @@ class Handler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         note, guardado = None, None
         if "guardado" in query:
-            # Lo que llega es «servidor» o el id de una casa. Se resuelve contra lo que hay, así
-            # que el aviso nunca puede decir algo que no venga de aquí dentro.
+            # What arrives is either "servidor" or a household id. It is resolved against what
+            # exists, so the notice can never say anything that did not come from in here.
             que = query["guardado"][0]
             if que == "servidor":
                 guardado = "Servidor"
@@ -2476,16 +2492,18 @@ class Handler(BaseHTTPRequestHandler):
         if "borrada" in query:
             note = "Casa borrada"
         if "puesto" in query:
-            # Deliberadamente «mandado» y no «puesto»: el panel no sabe si la tele estaba encendida
-            # ni si llegó a hacer caso. Prometer lo segundo sería mentir la mitad de las veces.
+            # Deliberately "sent" and not "tuned": the panel does not know whether the television
+            # was on or whether it took any notice. Promising the latter would be a lie half the
+            # time.
             note = "Canal mandado · la tele lo coge en un par de minutos si está encendida"
         if "nueva" in query:
             casa = next((c for c in houses() if c["id"] == query["nueva"][0]), None)
             if casa:
-                # La URL ya no se escribe aquí: la recoge `./sync-casas.sh`, que es como se hace.
+                # The URL is no longer written here: `./sync-casas.sh` collects it, which is how
+                # it is done.
                 note = f"<b>{esc(casa['nombre'])}</b> creada · ./sync-casas.sh"
-        # Después de los avisos, porque esta vista también enseña el suyo al guardar. Va aquí abajo
-        # y no con el resto de rutas por eso mismo: necesita el `guardado` que se acaba de resolver.
+        # After the notices, because this view shows its own on save too. It sits down here rather
+        # than with the other routes for that very reason: it needs the `guardado` just resolved.
         if path.endswith("/servidor"):
             try:
                 return self._send(render_server(guardado=guardado))
@@ -2527,9 +2545,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(render(errors=[problem]))
                 return self._redirect("?puesto=1")
 
-            # Cada sección guarda por su lado. Los errores se quedan en la página, porque son de
-            # un formulario que sigue en pantalla; un guardado correcto redirige, para que recargar
-            # después vuelva a leer en vez de volver a guardar.
+            # Each section saves on its own. Errors stay on the page, because they belong to a form
+            # still on screen; a successful save redirects, so that reloading afterwards reads again
+            # instead of saving again.
             if path.endswith("/servidor"):
                 saved, errors, avisos = apply_server(self._form())
                 if saved and not avisos:
@@ -2544,26 +2562,26 @@ class Handler(BaseHTTPRequestHandler):
                 house_id = form.get("casa", [""])[0]
                 saved, errors = apply_house(house_id, form)
                 if saved:
-                    # Con el ancla, para que la ficha se vuelva a abrir sola: guardar no debería
-                    # costar tres pulsaciones para volver a donde estabas.
+                    # With the anchor, so the dialog reopens by itself: saving should not cost
+                    # three presses to get back to where you were.
                     q = urllib.parse.quote(house_id)
                     return self._redirect(f"?guardado={q}#casa-{q}")
                 return self._send(render(errors=errors))
 
-            # Cualquier otro POST se rechaza en vez de tratarse como un formulario: llegaría sin
-            # campos, se leería como «todo vacío» y contestaría con un muro de errores de
-            # validación sobre un formulario que nadie ha enviado.
+            # Any other POST is refused rather than treated as a form: it would arrive with no
+            # fields, read as "everything blank" and answer with a wall of validation errors about a
+            # form nobody submitted.
             return self._send_json({"error": "no"}, status=404)
         except Exception as error:
             self._send(render(errors=[f"{error.__class__.__name__}"]))
 
     def _casa_del_token(self):
-        """La casa que hay detrás del token, o None. La misma credencial que usa /informe."""
+        """The household behind the token, or None. The same credential /informe uses."""
         offered = (self.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
         return house_for_token(offered)
 
     def _sync_pull(self):
-        """Lo que la casa ha visto en otros aparatos desde la última vez que éste preguntó."""
+        """What the household has watched on its other devices since this one last asked."""
         casa = self._casa_del_token()
         if not casa:
             return self._send_json({"error": "no"}, status=401)
@@ -2579,7 +2597,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _sync_push(self):
         """
-        Lo que este aparato ha visto, y de vuelta lo que se ha perdido.
+        What this device has watched, and back the other way what it has missed.
 
         Las dos mitades en una petición y no en dos: un aparato que acaba de ver algo quiere
         guardarlo y ponerse al día en el mismo gesto, y hacerlo por separado deja una ventana en la
@@ -2626,10 +2644,10 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self._send_json({"error": "cuerpo"}, status=400)
 
-        # Por la misma puerta y con la misma credencial llegan dos cosas distintas: «estoy viendo
-        # esto», que es lo de siempre, y «éstos son mis canales», que es la lista con la que el panel
-        # arma el desplegable de mandar un canal. Se distinguen por el campo, no por la ruta, para no
-        # tener que tocar nginx ni el documento de ninguna casa ya instalada.
+        # Two different things arrive through the same door with the same credential: "I am
+        # watching this", which is the old one, and "these are my channels", which is the list the
+        # panel builds its send-a-channel dropdown from. They are told apart by the field rather than
+        # by the path, so that neither nginx nor any installed household's document has to change.
         if "canales" in doc:
             try:
                 canales = [
@@ -2649,9 +2667,9 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             canal = str(doc["canal"]).strip()[:120]
-            # SimpleTV sólo tiene canales y no manda el campo. Videoclub, cuando informe, dirá si
-            # es serie o película. El nombre del campo sigue siendo `canal` para no romper lo que
-            # ya está instalado.
+            # SimpleTV only had channels and does not send the field. Videoclub, when it reports,
+            # says whether it is a series or a film. The field is still called `canal` so as not to
+            # break what is already installed.
             tipo = str(doc.get("tipo") or "canal").strip().lower()
         except Exception:
             return self._send_json({"error": "cuerpo"}, status=400)

@@ -150,8 +150,8 @@ def servidor(consulta: str) -> str:
         "c = sqlite3.connect('/var/lib/simpletv-admin/progreso.db')\n"
         + consulta
     )
-    # El host no se escribe aquí: este fichero se publica y el nombre del VPS es media pista para
-    # quien quiera probar suerte con su panel.
+    # The host is not written here: this file is published, and the VPS's name is half a lead for
+    # anybody who fancies trying their luck with its panel.
     destino = os.environ.get("VPS_SSH")
     if not destino:
         raise Saltar("falta VPS_SSH; sin él no se puede consultar la base del servidor")
@@ -224,7 +224,7 @@ def t1_2(ap, ctx):
     sin_desastres(ap)
 
 
-# =========================================================================== T2 · navegación
+# =========================================================================== T2 · navigation
 
 @caso("T2.1", "el D-pad recorre la tira de pestañas", "T2", aparatos=("tv",))
 def t2_1(ap, ctx):
@@ -292,8 +292,9 @@ def t2_4(ap, ctx):
 @caso("T3.1", "se cambia de persona desde el círculo", "T3")
 def t3_1(ap, ctx):
     entrar(ap, "Vicente")
-    # El nodo con la letra no es el pulsable: en Compose el `clickable` vive en el `Box` de arriba,
-    # y el volcado los da como dos nodos. Tocar el centro de la letra cae dentro del padre igual.
+    # The node with the letter is not the clickable one: in Compose the `clickable` lives on the
+    # `Box` above it, and the dump reports them as two nodes. Tapping the centre of the letter lands
+    # inside the parent all the same.
     inicial = texto_exacto(ap, "V")
     if not inicial:
         raise Saltar("no se localiza el círculo de persona")
@@ -319,7 +320,7 @@ def t3_2(ap, ctx):
     sin_desastres(ap)
 
 
-# =========================================================================== T4 · catálogo
+# =========================================================================== T4 · catalogue
 
 @caso("T4.1", "Ben-Hur no ofrece la copia que es otra película", "T4")
 def t4_1(ap, ctx):
@@ -342,8 +343,8 @@ def t4_1(ap, ctx):
     ap.tocar(*objetivo.centro)
     time.sleep(9)
     afirmar(ap.buscar("Ben-Hur") is not None, "no se abrió la ficha de Ben-Hur")
-    # Con espera larga a propósito: el selector no se dibuja hasta que `agreeingSources` ha
-    # preguntado a cada copia cuánto dura, que son dos o tres peticiones al proveedor.
+    # Deliberately a long wait: the picker is not drawn until `agreeingSources` has asked each copy
+    # how long it runs, which is two or three requests to the supplier.
     if not ap.esperar("Calidad", 30):
         raise Saltar("esta copia ya no tiene selector de calidad")
     afirmar(texto_exacto(ap, "4K") is not None, "falta la copia 4K")
@@ -364,7 +365,7 @@ def t4_2(ap, ctx):
     sin_desastres(ap)
 
 
-# =========================================================================== T5 · reproducción
+# =========================================================================== T5 · playback
 
 def _reproducir_algo(ap: Aparato) -> None:
     entrar(ap)
@@ -375,7 +376,7 @@ def _reproducir_algo(ap: Aparato) -> None:
             ap.tocar(*nodo.centro)
             break
     else:
-        # Una serie no tiene botón: se arranca por el primer episodio de la temporada abierta.
+        # A series has no button: it is started from the first episode of the open season.
         episodios = [
             n for n in ap.nodos()
             if n.clicable and (n.caja[2] - n.caja[0]) > (n.caja[3] - n.caja[1]) * 4
@@ -438,7 +439,7 @@ def t5_3(ap, ctx):
     sin_desastres(ap)
 
 
-# =========================================================================== T6 · sincronización
+# =========================================================================== T6 · synchronisation
 
 @caso("T6.1", "guardar en un aparato llega al servidor con su perfil", "T6",
       aparatos=("tv",), en_pareja=True)
@@ -447,15 +448,15 @@ def t6_1(ap, ctx):
     antes = {(p, o) for p, o, b in filas_lista() if not b}
 
     entrar(ap, "Vicente")
-    # Por «Películas» y no por lo primero de la portada: la ficha de una serie abre desplazada
-    # hacia sus episodios, y la fila de botones se queda fuera de la pantalla.
+    # Through "Películas" rather than the first thing on the front page: a series' detail opens
+    # scrolled down to its episodes, and the row of buttons ends up off screen.
     afirmar(ap.pulsar("Películas", 15), "no se pudo ir a Películas")
     time.sleep(5)
     abrir_algo(ap)
     boton = boton_lista(ap)
     afirmar(boton is not None, "la ficha no trae el botón de Mi lista")
     if boton.etiqueta.strip() == "En mi lista":
-        # Ya estaba guardada: se quita primero, para que lo que se mide sea una marca nueva.
+        # It was already saved: it is removed first, so that what is measured is a fresh mark.
         ap.tocar(*boton.centro)
         time.sleep(8)
         boton = boton_lista(ap)
@@ -485,7 +486,7 @@ def t6_2(ap, ctx):
 
     otro.limpiar_registro()
     entrar(otro, "Vicente")
-    # Una vuelta al primer plano es lo que dispara la sincronización de entrada.
+    # A return to the foreground is what triggers the inbound sync.
     otro.tecla("HOME")
     time.sleep(3)
     otro.arrancar(limpio=False)
@@ -512,7 +513,7 @@ def t6_3(ap, ctx):
     afirmar(obra in lapidas, "quitarla no dejó lápida en el servidor")
 
 
-# =========================================================================== T7 · construcción
+# =========================================================================== T7 · builds
 
 @caso("T7.1", "durante la construcción sólo se puede ir a la tele", "T7",
       aparatos=("tablet",), destructivo=True)
@@ -718,9 +719,10 @@ def t9_1(ap, ctx):
 def t9_2(ap, ctx):
     if not _en_modo_simple(ap):
         raise Saltar("este aparato no está en modo simple hoy")
-    # OK abre la lista igual por mando que por toque: la tecla llega por ADB en los dos aparatos,
-    # y `LiveScreen` no distingue el origen. Es lo mismo que ya hace `pulsar()` en el resto de la
-    # tanda, sin depender de las coordenadas de la pantalla de este aparato en concreto.
+    # OK opens the list the same way from a remote as from a touch: the key arrives over ADB on both
+    # devices, and `LiveScreen` does not distinguish the source. It is the same thing `pulsar()`
+    # already does throughout the run, without depending on this particular device's screen
+    # coordinates.
     ap.tecla("DPAD_CENTER")
     afirmar(ap.esperar("Cuenta:", 10) is not None, "OK no abrió la lista de canales")
     afirmar(ap.buscar("Películas") is None, "la lista de canales trae la tira del videoclub")

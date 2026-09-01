@@ -270,8 +270,9 @@ class Container(context: Context) {
                 // a simple household: there is no "Continue watching" there to bring up to date.
                 if (!provider.simple) progressSync.request()
                 if (!moved) return@launch
-                // El documento ha cambiado y puede ser otra casa: lo informado antes no describe a
-                // this one, so whatever is watched next is sent even if it repeats.
+                // The document changed and it may be another household: what was reported before
+                // does not describe this one, so whatever is watched next is sent even if it
+                // repeats.
                 reporter.forget()
                 if (!provider.isConfigured) {
                     _startup.value = Startup.NoCredentials

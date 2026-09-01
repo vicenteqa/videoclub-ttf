@@ -50,8 +50,8 @@ def main() -> int:
             print(f"{ROJO}  no contesta por ADB; se salta entero{FIN}")
             resultados.append(("T0", "T0.1", aparato.nombre, "FALLO", 0.0, "sin ADB"))
             continue
-        # Lo primero, antes de volver a tocar nada: si la tanda anterior se murió a mitad, este
-        # aparato sigue con las animaciones apagadas y sin salvapantallas.
+        # First of all, before touching anything else: if the previous run died halfway, this device
+        # still has its animations off and no screensaver.
         aparato.rescatar()
         aparato.preparar()
         contexto["pareja"] = next(
