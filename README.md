@@ -1,115 +1,127 @@
 # Videoclub
 
-Un videoclub y una televisión en directo para la familia, repartidos en varias casas: una app de
-Android que se instala en el televisor de cada uno, y un panel en un VPS desde el que se lleva todo
-sin tener que ir a ninguna de esas casas.
+A video shop and a live-television set for one family, spread across several households: an Android
+app installed on each person's television, and a panel on a VPS from which the whole thing is run
+without having to visit any of those houses.
 
 ---
 
-> # ⚠️ ESTO ESTÁ *VIBE CODED* ⚠️
+> # ⚠️ THIS IS VIBE CODED ⚠️
 >
-> **Prácticamente todo el código de este repositorio —la app, el panel, los guiones, los tests y
-> esta misma documentación— lo ha escrito un modelo de lenguaje**, conversando, a lo largo de
-> muchas sesiones. No hay aquí una revisión línea a línea hecha por una persona.
+> **Practically all of the code in this repository — the app, the panel, the scripts, the tests and
+> this documentation — was written by a language model**, in conversation, over many sessions. There
+> has been no line-by-line human review.
 >
-> Lo que eso significa en la práctica:
+> What that means in practice:
 >
-> - **Funciona, y está probado en aparatos de verdad**, pero «probado» quiere decir que alguien lo
->   vio funcionar, no que exista una red de seguridad que avise cuando se rompa.
-> - **Hay decisiones que parecen deliberadas y lo son sólo a medias.** Los comentarios explican por
->   qué se hizo cada cosa; créetelos como intención, no como verdad verificada.
-> - **No lo uses como referencia de cómo se hacen las cosas.** Es un proyecto doméstico que
->   resuelve un problema doméstico.
-> - **Si vas a tocarlo, lee lo que toques.** Especialmente el panel, del que dependen televisores
->   de otras personas que no pueden arreglarlo ellas.
+> - **It works, and it has been tested on real devices**, but "tested" means somebody watched it
+>   work, not that there is a safety net that will shout when it breaks.
+> - **Some decisions look deliberate and are only half so.** The comments explain why each thing was
+>   done; read them as intent, not as verified truth.
+> - **Do not take this as a reference for how things are done.** It is a domestic project solving a
+>   domestic problem.
+> - **If you are going to touch it, read what you touch.** Especially the panel: other people's
+>   televisions depend on it, and those people cannot fix it themselves.
 >
-> Dicho esto: lleva meses dando servicio a varias casas sin que nadie haya tenido que llamar por
-> teléfono. Vale para lo que vale.
+> That said: it has been serving several households for months without anyone having to phone for
+> help. It is worth what it is worth.
 
 ---
 
-## Qué es cada cosa
+## What each piece is
 
 ```
-app/                 La aplicación Android (Kotlin + Compose, media3/ExoPlayer)
-server/admin/        El panel: un servidor HTTP en Python de la biblioteca estándar
-server/setup-vps.sh  La preparación del VPS, una vez
-tests/e2e/           Pruebas contra aparatos reales, por ADB
-deploy.sh            Compilar e instalar en el televisor de una casa
-sync-casas.sh        Traerse del panel la lista de casas a local.properties
+app/                 The Android application (Kotlin + Compose, media3/ExoPlayer)
+server/admin/        The panel: an HTTP server written in the Python standard library
+server/setup-vps.sh  One-time preparation of the VPS
+tests/e2e/           Tests against real devices, over ADB
+deploy.sh            Build and install onto one household's television
+sync-casas.sh        Pull the list of households from the panel into local.properties
 ```
 
-### La app
+### The app
 
-Dos mitades que comparten cuenta y conexión:
+Two halves sharing one account and one connection:
 
-- **El videoclub**: catálogo de películas y series del proveedor, con perfiles por persona,
-  «Seguir viendo» y «Mi lista» sincronizados entre los aparatos de la misma casa.
-- **La televisión en directo**: una lista de canales curada a mano a partir de los ~2.000 que sirve
-  el proveedor, con guía, cadena de respaldo por canal y zapeo.
+- **The video shop**: the supplier's film and series catalogue, with a profile per person, and
+  "Continue watching" and "My list" synchronised across the devices of the same household.
+- **Live television**: a hand-curated channel list built from the ~2,000 streams the supplier
+  carries, with a guide, a per-channel fallback chain and channel surfing.
 
-Y un **modo simple**: una casa puede configurarse para que la app sea sólo la televisión —arranca
-sintonizando, sin pestañas, sin catálogo y sin selector de personas—. Es para quien quiere una tele
-y no un menú. Se enciende con una casilla en el panel.
+And a **simple mode**: a household can be configured so that the app is only the television — it
+starts already tuned in, with no tabs, no catalogue and no profile picker. It is for someone who
+wants a television, not a menu. It is switched on with a checkbox in the panel.
 
-### El panel
+### The panel
 
-Vive en el VPS, en `https://<host>/panel/`. Desde ahí se da de alta una casa, se le cambia la
-contraseña del proveedor, se ve qué está viendo cada televisor, y —en las casas simples— se le puede
-mandar un canal a distancia.
+It lives on the VPS at `https://<host>/panel/`. From there you add a household, change its supplier
+password, see what each television is watching, and — for simple households — send it a channel
+remotely.
 
-No es una aplicación web moderna: es un fichero de Python con la biblioteca estándar, sin
-dependencias, sirviendo HTML detrás de nginx. Está así a propósito — el VPS tiene otras cosas
-funcionando y esto no debía añadirle un ecosistema que mantener.
+It is not a modern web application: it is one Python file using only the standard library, serving
+HTML behind nginx. That is deliberate — the VPS has other things running on it, and this was not
+going to add an ecosystem to maintain.
 
-## La idea que lo sostiene todo
+## The idea holding it all up
 
-**Nada de la cuenta está compilado en el APK.** El servidor del proveedor, el usuario, la
-contraseña, las personas de la casa, si va en modo simple: todo eso vive en un documento JSON en el
-VPS, uno por casa, y la app lo lee al arrancar y cada dos minutos mientras está abierta.
+**Nothing about the account is compiled into the APK.** The supplier's server, the username, the
+password, the people in the household, whether it runs in simple mode: all of it lives in a JSON
+document on the VPS, one per household, which the app reads at launch and every two minutes while
+it is open.
 
-La consecuencia práctica es la que importa: **cambiar una contraseña es editar un fichero en un
-servidor**, no conducir hasta el salón de otra persona con un portátil.
+The practical consequence is the one that matters: **changing a password is editing a file on a
+server**, not driving to someone else's living room with a laptop.
 
-Lo único que sí va compilado es *qué documento leer*, porque es lo único que dos casas no comparten.
-De ahí que haya un APK por casa: Gradle genera un *flavour* por cada `casa.<id>.remoteConfig.url`
-de `local.properties`, que a su vez las trae del panel `./sync-casas.sh`.
+The only thing that *is* compiled in is *which document to read*, because that is the single thing
+two households do not share. Hence one APK per household: Gradle generates a flavour for every
+`casa.<id>.remoteConfig.url` in `local.properties`, which `./sync-casas.sh` in turn pulls from the
+panel.
 
-Esa URL **es la credencial**: el documento lleva la contraseña en claro y no hay ningún login. Por
-eso el segmento aleatorio del path, y por eso `local.properties` no se sube.
+That URL **is the credential**: the document carries the password in the clear and there is no
+login. Hence the random path segment, and hence `local.properties` never being committed.
 
-## Empezar
+## Getting started
 
 ```bash
-cp local.properties.example local.properties   # y rellenarlo
-./build-ffmpeg-decoder.sh                      # el descodificador, una vez
-./sync-casas.sh                                # trae las casas desde el panel
-./gradlew :app:assembleVicenteDebug            # o la casa que sea
+cp local.properties.example local.properties   # then fill it in
+./build-ffmpeg-decoder.sh                      # the decoder, once
+./sync-casas.sh                                # pull the households from the panel
+./gradlew :app:assembleVicenteDebug            # or whichever household
 ```
 
-Hace falta **JDK 17** (versiones más nuevas las rechaza el plugin de Android) y el SDK de Android.
+You need **JDK 17** (the Android plugin rejects newer ones) and the Android SDK.
 
-Para instalar en un televisor, ver [DESPLIEGUE.md](DESPLIEGUE.md).
-Para el VPS, el documento alojado y el panel, ver [server/README.md](server/README.md).
+To install onto a television, see [DEPLOYMENT.md](DEPLOYMENT.md).
+For the VPS, the hosted document and the panel, see [server/README.md](server/README.md).
 
-## Firma
+## Signing
 
-Los release se firman con `keystore/videoclub-release.p12`, que **no está en el repositorio**.
-Android sólo acepta una actualización firmada con la misma clave que el APK instalado, así que
-perder esa clave significa no poder volver a actualizar ningún televisor sin ir a desinstalar a
-mano. El fichero y su contraseña van en un gestor de contraseñas, no en este disco.
+Release builds are signed with `keystore/videoclub-release.p12`, which is **not in the repository**.
+Android only accepts an update signed with the same key as the installed APK, so losing that key
+means never being able to update any television again without going there to uninstall by hand. The
+file and its password belong in a password manager, not on this disk.
 
-El `versionCode` se genera solo a partir de la fecha (`AAMMDDHH`), porque un contador que hay que
-acordarse de subir se olvida — y el olvido no se ve al compilar, se ve semanas después en un
-aparato que no se actualiza.
+The `versionCode` is generated from the build date (`yyMMddHH`), because a counter you have to
+remember to bump eventually gets forgotten — and that mistake is not visible at build time, it is
+visible weeks later on a device that never updates.
 
-## De dónde viene
+## A note on language
 
-Esto empezó como dos proyectos: **SimpleTV**, una app que era sólo televisión en directo, y
-**Videoclub**, que además llevaba el catálogo. Compartían la mitad del código en dos copias, así que
-cada arreglo había que hacerlo dos veces — y alguna vez se hizo sólo una.
+The user-facing text — everything on screen, and everything in the panel — is in **Spanish**,
+because the people using it are. So are the JSON field names in the hosted document (`canales`,
+`perfiles`, `poner`), which are part of the wire format and cannot be renamed without breaking every
+device already installed.
 
-En septiembre de 2026 se fusionaron: Videoclub aprendió el «modo simple» y SimpleTV se retiró. El
-panel viene de aquel proyecto, y de ahí que su fichero y su servicio en el VPS todavía se llamen
-`simpletv-admin`: renombrar un servicio del que dependen seis casas es una tarea aparte, con su
-propio riesgo, y no se hace de pasada.
+The documentation is in English. The code comments are mostly English in the Android app and mostly
+Spanish in the panel and the end-to-end tests, which is honest about how it grew rather than tidy.
+
+## Where this came from
+
+This started as two projects: **SimpleTV**, an app that was only live television, and **Videoclub**,
+which also carried the catalogue. They shared half their code in two copies, so every fix had to be
+made twice — and once or twice it was only made once.
+
+In September 2026 they were merged: Videoclub learned "simple mode" and SimpleTV was retired. The
+panel comes from that project, which is why its file and its systemd service on the VPS are still
+called `simpletv-admin`: renaming a service that six households depend on is a separate job, with
+its own risk, and is not done in passing.
