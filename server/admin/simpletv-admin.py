@@ -180,6 +180,49 @@ def save_server(values):
     save_state(doc)
 
 
+def extra_channels():
+    """
+    The catalogue of local channels no supplier carries, shared by every household.
+
+    A channel is defined once here and then only checked on or off per household — see
+    [apply_house]'s `canal_extra` handling — rather than its name, URL, logo and User-Agent being
+    retyped for each one, which is how the first of these (Penedès TV) ended up copy-pasted by hand
+    between two households' documents before this existed.
+    """
+    return state().get("canales_extra") or []
+
+
+def save_extra_channels(canales):
+    doc = state()
+    doc["canales_extra"] = canales
+    save_state(doc)
+
+
+def create_extra_channel(nombre, url, logo=None, user_agent=None):
+    """Adds a channel to the shared catalogue, or answers why not. Never touches any household's
+    own document — see [apply_house], which is what turns a checked box into one."""
+    nombre = (nombre or "").strip()
+    url = (url or "").strip()
+    if not nombre or not url:
+        return None, None
+    canales = extra_channels()
+    if any(c.get("url") == url for c in canales):
+        return None, f"«{nombre}» ya está de alta con esa URL."
+    base = slug(nombre)
+    cid, n = base, 2
+    while any(c.get("id") == cid for c in canales):
+        cid = f"{base}-{n}"
+        n += 1
+    entry = {"id": cid, "nombre": nombre, "url": url}
+    if logo and logo.strip():
+        entry["logo"] = logo.strip()
+    if user_agent and user_agent.strip():
+        entry["userAgent"] = user_agent.strip()
+    canales.append(entry)
+    save_extra_channels(canales)
+    return entry, None
+
+
 def read_provider(path):
     try:
         with open(path, encoding="utf-8") as handle:
@@ -531,6 +574,42 @@ def apply_house(house_id, form):
             doc["simple"] = True
         else:
             doc.pop("simple", None)
+
+        # A brand new channel, typed once from whichever household happens to want it first, joins
+        # the shared catalogue and is marked on for this one — see [create_extra_channel]. Every
+        # other household can then check the same box without retyping its URL.
+        catalogo = {c["id"]: c for c in extra_channels()}
+        nuevo_nombre_canal = form.get(prefix + "canal.nuevo.nombre", [""])[0]
+        nuevo_url_canal = form.get(prefix + "canal.nuevo.url", [""])[0]
+        marcados = set(form.get(prefix + "canal_extra", []))
+        if nuevo_nombre_canal.strip() or nuevo_url_canal.strip():
+            entry, problem = create_extra_channel(
+                nuevo_nombre_canal,
+                nuevo_url_canal,
+                form.get(prefix + "canal.nuevo.logo", [""])[0],
+                form.get(prefix + "canal.nuevo.userAgent", [""])[0],
+            )
+            if problem:
+                errors.append(problem)
+            elif entry:
+                catalogo[entry["id"]] = entry
+                marcados.add(entry["id"])
+
+        seleccion = []
+        for cid in marcados:
+            entry = catalogo.get(cid)
+            if not entry:
+                continue
+            canal = {"nombre": entry["nombre"], "url": entry["url"]}
+            if entry.get("logo"):
+                canal["logo"] = entry["logo"]
+            if entry.get("userAgent"):
+                canal["userAgent"] = entry["userAgent"]
+            seleccion.append(canal)
+        if seleccion:
+            doc["canales"] = seleccion
+        else:
+            doc.pop("canales", None)
 
     if not doc.get("username") or not doc.get("password"):
         errors.append(f"«{casa['nombre']}» necesita usuario y contraseña.")
@@ -1582,6 +1661,7 @@ select{
 .nino{display:flex;align-items:center;gap:.4rem;font-size:var(--t-xs);letter-spacing:.12em;
   text-transform:uppercase;color:var(--mute);white-space:nowrap;margin:0}
 .nino input{accent-color:var(--phos-dim);width:16px;height:16px}
+.canalesextra{display:flex;flex-direction:column;gap:.5rem;margin-top:.5rem}
 button.mas{
   margin-top:.15rem;background:transparent;border:1px dashed var(--line);color:var(--mute);
   font:inherit;font-size:var(--t-xs);letter-spacing:.14em;text-transform:uppercase;
@@ -2578,6 +2658,13 @@ def render_house(casa):
         else "<button type=button class=pes data-hoja='perfiles'>Perfiles</button>"
     )
 
+    # SimpleTV never gets this far — see the note by [render_house]'s "Versión" block — so it is
+    # exactly `casa["app"] == "videoclub"` throughout, same as the tab's content below.
+    pestana_canales = (
+        "<button type=button class=pes data-hoja='canales'>Canales extra</button>"
+        if casa["app"] == "videoclub" else ""
+    )
+
     out = [
         f"<dialog class=ficha id='casa-{ident}' open>",
         # El formulario de borrar va primero y aparte, nunca dentro del de guardar: HTML no admite
@@ -2594,6 +2681,7 @@ def render_house(casa):
         f"<div class=pestanas data-casa='{ident}'>"
         "<button type=button class='pes activa' data-hoja='cuenta'>Cuenta</button>"
         f"{pestana_perfiles}"
+        f"{pestana_canales}"
         "<button type=button class=pes data-hoja='uso'>Qué ve</button>"
         f"{pestana_poner}"
         "</div>",
@@ -2704,6 +2792,58 @@ def render_house(casa):
         # undone.
         out.append("<p class=hint>Sin nombre = fuera, con su historial.</p></div>")
     out.append("</div>")
+
+    # --- pestaña: canales extra
+    #
+    # A checkbox per entry in the shared catalogue — see [extra_channels] — plus a small form to
+    # define one that does not exist yet anywhere. Both submit together with "Guardar": there is no
+    # separate save button here, same as Perfiles just above.
+    if casa["app"] == "videoclub":
+        catalogo = extra_channels()
+        urls_casa = {c.get("url") for c in (doc.get("canales") or []) if c.get("url")}
+        out.append(f"<div class=hoja id='canales-{ident}'>")
+        if catalogo:
+            out.append("<div class=gente><label>Canales de esta casa, además de los del proveedor</label>")
+            out.append("<div class=canalesextra>")
+            for entry in catalogo:
+                checked = " checked" if entry.get("url") in urls_casa else ""
+                out.append(
+                    f"<label class=nino><input type=checkbox name='{prefix}canal_extra' "
+                    f"value='{esc(entry['id'])}'{checked}> {esc(entry['nombre'])}</label>"
+                )
+            out.append("</div></div>")
+        else:
+            out.append(
+                "<p class=hint>Todavía no hay ningún canal extra dado de alta en ninguna casa. "
+                "Añade el primero abajo.</p>"
+            )
+        out.append("<div class=grid style='margin-top:1rem'>")
+        out.append(
+            f"<div class=full><label for='{prefix}canal-nuevo-nombre'>Nombre de un canal nuevo</label>"
+            f"<input type=text id='{prefix}canal-nuevo-nombre' name='{prefix}canal.nuevo.nombre' "
+            "placeholder='p. ej. Penedès TV'></div>"
+        )
+        out.append(
+            f"<div class=full><label for='{prefix}canal-nuevo-url'>URL (m3u8)</label>"
+            f"<input type=text id='{prefix}canal-nuevo-url' name='{prefix}canal.nuevo.url' "
+            "autocapitalize=off autocorrect=off spellcheck=false></div>"
+        )
+        out.append(
+            f"<div><label for='{prefix}canal-nuevo-logo'>Logo (opcional)</label>"
+            f"<input type=text id='{prefix}canal-nuevo-logo' name='{prefix}canal.nuevo.logo' "
+            "autocapitalize=off autocorrect=off spellcheck=false></div>"
+        )
+        out.append(
+            f"<div><label for='{prefix}canal-nuevo-agent'>User-Agent (opcional)</label>"
+            f"<input type=text id='{prefix}canal-nuevo-agent' name='{prefix}canal.nuevo.userAgent' "
+            "autocapitalize=off autocorrect=off spellcheck=false></div>"
+        )
+        out.append("</div>")
+        out.append(
+            "<p class=hint>Un canal nuevo se añade a todas las casas a la vez, marcado solo en "
+            "esta — las demás lo marcan luego sin volver a escribir la URL.</p>"
+        )
+        out.append("</div>")
 
     # --- pestaña: qué ve
     # Inside the form even though it has no fields, so that "Guardar" stays at the foot of the
