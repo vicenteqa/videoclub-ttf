@@ -2,12 +2,15 @@ name: Publicar Videoclub
 
 # Un push a main es "esto está listo para salir": compila el release de cada casa y lo publica en
 # el VPS exactamente como lo haría ./publish.sh a mano, casa por casa. paths-ignore para que un
-# commit que sólo toca prosa (README, DEPLOYMENT) no dispare seis builds por nada.
+# commit que sólo toca prosa (README, DEPLOYMENT) no dispare seis builds por nada — y lo mismo para
+# server/**, que este workflow no toca en absoluto: el panel se despliega aparte, a mano por SSH
+# (scp + sudo install + systemctl restart), nunca desde aquí.
 on:
   push:
     branches: [main]
     paths-ignore:
       - "**/*.md"
+      - "server/**"
   workflow_dispatch: {}
 
 permissions:
