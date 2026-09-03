@@ -63,6 +63,24 @@ data class ProviderConfig(
     /** Si esta casa comparte el progreso entre sus aparatos. */
     val syncsProgress: Boolean
         get() = syncUrl.startsWith("https://") && reportToken.isNotBlank()
+
+    /**
+     * The shared catalogue mirror one household's account feeds every two hours, so the other five
+     * do not each have to ask the supplier for the same ~900 requests' worth of categories — see
+     * `catalogo-maestro.py`. Derived the same way as [syncUrl] and for the same reason: it is the
+     * same URL for every household regardless of which one is the source, so nothing here needs to
+     * be written into any document — an already-installed device gets it for free the moment the VPS
+     * starts serving it.
+     *
+     * [VodClient.catalogMirror] treats a blank result exactly like a network failure: fall back to
+     * asking the supplier directly, which is what every household already did before this existed.
+     */
+    val catalogMirrorUrl: String
+        get() = if (reportUrl.endsWith(REPORT_PATH)) {
+            reportUrl.removeSuffix(REPORT_PATH) + CATALOG_MIRROR_PATH
+        } else {
+            ""
+        }
     /** Enough to ask the supplier something. The `User-Agent` has a default, so it is not here. */
     val isConfigured: Boolean
         get() = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
@@ -88,6 +106,7 @@ data class ProviderConfig(
 
         private const val REPORT_PATH = "/informe"
         private const val SYNC_PATH = "/sync"
+        private const val CATALOG_MIRROR_PATH = "/videoclub/_catalogo/vod.json"
 
         /**
          * No account at all.

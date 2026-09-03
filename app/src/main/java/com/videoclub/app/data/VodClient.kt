@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 
 /**
  * The Xtream calls this app makes, and nothing else.
@@ -42,6 +43,26 @@ class VodClient(
         val action = if (kind == Kind.Movie) "get_vod_streams" else "get_series"
         val body = get(apiUrl(action) { it.addQueryParameter("category_id", categoryId) })
         CatalogJson.listings(kind, body)
+    }
+
+    /**
+     * The shared catalogue mirror one household's account feeds every two hours — see
+     * [ProviderConfig.catalogMirrorUrl] — or null when it cannot be used for any reason: no URL yet,
+     * the request failed, the body will not parse, or it is more than a day old. That last one
+     * matters as much as the others: a stuck VPS job must not quietly freeze the catalogue for every
+     * household reading it, so past a day this is treated exactly like the mirror not existing —
+     * [CatalogSync] falls back to asking the supplier directly, same as it always did.
+     */
+    suspend fun catalogMirror(): CatalogMirror? = withContext(Dispatchers.IO) {
+        val url = config.catalogMirrorUrl
+        if (url.isEmpty()) return@withContext null
+        runCatching {
+            val root = JSONObject(get(url))
+            val generatedAtSeconds = root.optLong("generado_en", 0L)
+            val ageSeconds = System.currentTimeMillis() / 1000 - generatedAtSeconds
+            if (generatedAtSeconds <= 0L || ageSeconds > MIRROR_MAX_AGE_SECONDS) null
+            else CatalogMirror(root)
+        }.getOrNull()
     }
 
     /** Plot, cast, runtime and the codec report, none of which appear in a film listing. */
@@ -182,5 +203,32 @@ class VodClient(
 
         /** What is on now and what is on next. An information strip has room for nothing else. */
         const val SHORT_EPG_LIMIT = 2
+
+        /** See [catalogMirror] — past this, a stale mirror is treated as no mirror at all. */
+        const val MIRROR_MAX_AGE_SECONDS = 24L * 60 * 60
     }
+}
+
+/**
+ * The categories and listings from `_catalogo/vod.json`, read back exactly as
+ * `catalogo-maestro.py` wrote them — one call to the supplier's API, not nine hundred.
+ *
+ * Holds the parsed document rather than [Listing]/[RemoteCategory] rows: the categories array and
+ * each category's listings array are handed to [CatalogJson] precisely as they arrived, the same
+ * function that already reads them straight from the supplier, so nothing about how a listing is
+ * parsed needs to know or care where the bytes came from.
+ */
+class CatalogMirror internal constructor(private val root: JSONObject) {
+
+    fun categories(kind: Kind): List<RemoteCategory> =
+        CatalogJson.categories(block(kind)?.optJSONArray("categorias")?.toString() ?: "[]")
+
+    /** Null when this category never made it into the mirror — a household falls back for it alone. */
+    fun listings(kind: Kind, categoryId: String): List<Listing>? {
+        val array = block(kind)?.optJSONObject("streams")?.optJSONArray(categoryId) ?: return null
+        return CatalogJson.listings(kind, array.toString())
+    }
+
+    private fun block(kind: Kind): JSONObject? =
+        root.optJSONObject(if (kind == Kind.Movie) "vod" else "series")
 }

@@ -35,6 +35,15 @@ data class SyncProgress(val done: Int, val total: Int, val label: String) {
  * Withdrawn titles are removed by [SyncSession.sweep], which deletes everything not stamped by this
  * run. If any category failed to download, that sweep is skipped: a dropped Wi-Fi connection must
  * not be mistaken for the supplier having deleted its entire catalogue.
+ *
+ * ### Why a mirror does not change any of the above
+ *
+ * [VodClient.catalogMirror] answers the same categories and the same listings one household's
+ * account already fetched, cached on the VPS — see `catalogo-maestro.py`. It is asked for once, up
+ * front, and every category and every listing below prefers it when it has an answer and asks the
+ * supplier directly, exactly as before, the moment it does not: no URL configured yet, the mirror
+ * unreachable, or — the ordinary case — one category the mirror's own run happened not to have.
+ * Nothing about the merge into [CatalogStore] changes; only where a [Listing] came from does.
  */
 class CatalogSync(
     private val client: VodClient,
@@ -44,14 +53,18 @@ class CatalogSync(
     suspend fun run(nowMillis: Long, onProgress: (SyncProgress) -> Unit): Boolean =
         withContext(Dispatchers.IO) {
             val session = store.beginSync(nowMillis)
+            val mirror = client.catalogMirror()
             var complete = true
             var done = 0
 
             try {
                 val plan = Kind.entries.map { kind ->
-                    kind to runCatching { client.categories(kind) }
-                        .onFailure { complete = false }
-                        .getOrDefault(emptyList())
+                    val fromMirror = mirror?.categories(kind).orEmpty()
+                    kind to fromMirror.ifEmpty {
+                        runCatching { client.categories(kind) }
+                            .onFailure { complete = false }
+                            .getOrDefault(emptyList())
+                    }
                 }
                 val total = plan.sumOf { it.second.size }
                 if (total == 0) return@withContext false
@@ -66,7 +79,7 @@ class CatalogSync(
                     for (batch in ids.chunked(BATCH)) {
                         val fetched = coroutineScope {
                             batch.map { (category, id) ->
-                                async { Triple(category, id, fetch(kind, category)) }
+                                async { Triple(category, id, fetch(kind, category, mirror)) }
                             }.awaitAll()
                         }
                         if (fetched.any { it.third == null }) complete = false
@@ -102,8 +115,15 @@ class CatalogSync(
             }
         }
 
-    /** One category, with a single retry. Null means it never arrived. */
-    private suspend fun fetch(kind: Kind, category: RemoteCategory): List<Listing>? {
+    /**
+     * One category, with a single retry against the supplier. Null means it never arrived.
+     *
+     * The mirror is asked first and, when it has this category, settles the question without a
+     * retry loop at all — it is either there or it is not, there is nothing to be gained asking the
+     * VPS twice for the same static file.
+     */
+    private suspend fun fetch(kind: Kind, category: RemoteCategory, mirror: CatalogMirror?): List<Listing>? {
+        mirror?.listings(kind, category.remoteId)?.let { return it }
         repeat(ATTEMPTS) { attempt ->
             runCatching { client.listings(kind, category.remoteId) }
                 .onSuccess { return it }
