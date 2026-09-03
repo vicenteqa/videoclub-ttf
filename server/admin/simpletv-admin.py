@@ -196,6 +196,28 @@ def save_server(values):
     save_state(doc)
 
 
+def catalog_master_id():
+    """
+    The household whose account `catalogo-maestro.py` uses to build the shared catalogue mirror
+    every two hours, or None if nobody has chosen one yet.
+
+    Any videoclub household's account answers the same catalogue — confirmed directly, same
+    `stream_id` for the same title on two different accounts — so this is only ever "whose
+    credentials happen to make the request", never "whose catalogue this is". See `VodClient.kt`'s
+    `catalogMirror()` on the app's side for where the result is read back.
+    """
+    return state().get("catalogo_maestro")
+
+
+def save_catalog_master(house_id):
+    doc = state()
+    if house_id:
+        doc["catalogo_maestro"] = house_id
+    else:
+        doc.pop("catalogo_maestro", None)
+    save_state(doc)
+
+
 def extra_channels():
     """The catalogue of local channels no supplier carries — see [CANALES_EXTRA]. Only checked on
     or off per household from here; see [apply_house]'s `canal_extra` handling."""
@@ -421,6 +443,11 @@ def apply_server(form):
         return False, [f"«{url}» no parece una dirección. Debe empezar por http:// o https://"], []
 
     save_server({k: v for k, v in (("url", url), ("userAgent", agent)) if v})
+
+    maestro = form.get("catalogo_maestro", [""])[0].strip()
+    if maestro and not any(c["id"] == maestro and c["app"] == "videoclub" for c in houses()):
+        maestro = ""
+    save_catalog_master(maestro or None)
 
     avisos = []
     for casa in houses():
@@ -2416,6 +2443,30 @@ def render_server(guardado=None, errors=(), avisos=()):
         f"<input type=text id=userAgent name=userAgent value='{esc(shared.get('userAgent'))}' "
         "placeholder='SimpleTV/1.0' autocapitalize=off autocorrect=off spellcheck=false></div>"
     )
+
+    # Any videoclub household's account answers the same catalogue — see [catalog_master_id] — so
+    # this is only asking whose credentials the VPS borrows every two hours, not picking a "real"
+    # catalogue over the others'.
+    videoclub_houses = [c for c in houses() if c["app"] == "videoclub"]
+    if videoclub_houses:
+        actual = catalog_master_id()
+        out.append(
+            "<div style='margin-top:1.1rem'>"
+            "<label for=catalogo_maestro>Casa que alimenta el catálogo compartido</label>"
+            "<select id=catalogo_maestro name=catalogo_maestro>"
+            "<option value=''>Ninguna (cada casa pide su propio catálogo)</option>"
+        )
+        for casa in videoclub_houses:
+            selected = " selected" if casa["id"] == actual else ""
+            out.append(f"<option value='{esc(casa['id'])}'{selected}>{esc(casa['nombre'])}</option>")
+        out.append("</select>")
+        out.append(
+            "<p class=hint>El VPS pide el catálogo entero con la cuenta de esa casa cada dos horas "
+            "y lo deja listo para que las demás lo bajen de ahí, en vez de pedírselo cada una al "
+            "proveedor por su cuenta.</p>"
+        )
+        out.append("</div>")
+
     out.append("<div class=acciones><button class=save type=submit>Guardar servidor</button></div>")
     out.append("</div></form></fieldset>")
 
