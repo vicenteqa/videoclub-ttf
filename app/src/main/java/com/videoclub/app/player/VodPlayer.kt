@@ -1,6 +1,8 @@
 package com.videoclub.app.player
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -70,6 +72,15 @@ class VodPlayer(
     /** Audio tracks whose decoder has already failed on this file. Never retried. */
     private val refusedAudio = mutableSetOf<String>()
 
+    /** The file currently open, so a transient failure can be reopened without the caller's help. */
+    private var currentUrl: String? = null
+
+    /** How many transient failures in a row this file has had. Reset the moment it plays. */
+    private var transientRetries = 0
+
+    /** Only ever posts the next retry attempt; nothing here survives [release]. */
+    private val retryHandler = Handler(Looper.getMainLooper())
+
     /** The last non-empty track list. A fatal error clears [ExoPlayer.getCurrentTracks]. */
     private var knownTracks: Tracks = Tracks.EMPTY
 
@@ -120,6 +131,7 @@ class VodPlayer(
                 override fun onPlayerError(error: PlaybackException) {
                     Log.w(TAG, "Playback failed: ${error.errorCodeName}", error)
                     if (retryWithoutRefusedAudio(error)) return
+                    if (retryTransient(error)) return
                     _failure.value = PlaybackFailure(
                         code = error.errorCodeName,
                         isFormatProblem = error.errorCode in FORMAT_ERRORS
@@ -127,7 +139,13 @@ class VodPlayer(
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
-                    if (state == Player.STATE_READY) _failure.value = null
+                    if (state == Player.STATE_READY) {
+                        _failure.value = null
+                        // Actually played, not just failed to error again: a copy that has settled
+                        // in earns a fresh run of retries the next time the CDN hiccups, rather than
+                        // carrying a grudge from whatever it took to get here.
+                        transientRetries = 0
+                    }
                 }
             })
         }
@@ -137,6 +155,9 @@ class VodPlayer(
         _audioFallback.value = null
         refusedAudio.clear()
         knownTracks = Tracks.EMPTY
+        currentUrl = url
+        transientRetries = 0
+        retryHandler.removeCallbacksAndMessages(null)
         prefer(preferred)
         exoPlayer.setMediaItem(MediaItem.fromUri(url))
         if (startPositionMillis > 0) exoPlayer.seekTo(startPositionMillis)
@@ -193,6 +214,45 @@ class VodPlayer(
         .flatMap { group -> (0 until group.length).map { group to it } }
         .firstOrNull { (group, index) -> group.isTrackSelected(index) }
         ?.let { (group, index) -> group.getTrackFormat(index).language }
+
+    /**
+     * Answers a network-class failure by asking for the same file again, a little later.
+     *
+     * Measured directly against this catalogue's CDN: a file freshly uploaded answers
+     * `CDN-Cache: BYPASS` on every edge — nothing has pulled it through yet — and the origin behind
+     * it occasionally answers a request with a bad status while it does, `429` included. That is not
+     * "this file is broken", it is "ask again in a moment", and a title uploaded an hour ago is
+     * exactly the one still likely to hit it. `ERROR_CODE_IO_BAD_HTTP_STATUS` had no retry of any
+     * kind before this: one bad response from the CDN and the only way past it was a person tapping
+     * the retry icon by hand, for a fault that usually clears itself in seconds.
+     *
+     * Format failures are deliberately excluded — see [FORMAT_ERRORS] — since asking the same
+     * decoder to try the same unsupported file again wastes the retries on something that will never
+     * change, when what actually helps there is [PlayerScreen] stepping to the next copy.
+     *
+     * @return true when a retry was scheduled, so no error is reported yet.
+     */
+    private fun retryTransient(error: PlaybackException): Boolean {
+        if (error.errorCode !in TRANSIENT_ERRORS) return false
+        if (transientRetries >= MAX_TRANSIENT_RETRIES) return false
+        val url = currentUrl ?: return false
+
+        transientRetries += 1
+        val position = exoPlayer.currentPosition
+        val delayMs = TRANSIENT_RETRY_DELAY_MS * transientRetries
+        Log.w(
+            TAG,
+            "Transient playback error (${error.errorCodeName}); retry $transientRetries of " +
+                "$MAX_TRANSIENT_RETRIES in ${delayMs}ms"
+        )
+        retryHandler.postDelayed({
+            exoPlayer.setMediaItem(MediaItem.fromUri(url))
+            if (position > 0) exoPlayer.seekTo(position)
+            exoPlayer.playWhenReady = true
+            exoPlayer.prepare()
+        }, delayMs)
+        return true
+    }
 
     /**
      * Answers an audio decoder that refused a track by choosing a different track.
@@ -261,7 +321,10 @@ class VodPlayer(
 
     fun pause() = exoPlayer.pause()
 
-    fun release() = exoPlayer.release()
+    fun release() {
+        retryHandler.removeCallbacksAndMessages(null)
+        exoPlayer.release()
+    }
 
     private companion object {
         const val TAG = "VodPlayer"
@@ -272,6 +335,22 @@ class VodPlayer(
          */
         val FORMAT_ERRORS = PlaybackException.ERROR_CODE_DECODER_INIT_FAILED..
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+
+        /**
+         * The ones worth asking again for, because the file did nothing wrong — see [retryTransient].
+         *
+         * Deliberately not the whole `ERROR_CODE_IO_*` range: `FILE_NOT_FOUND` and `NO_PERMISSION`
+         * are the CDN answering clearly and correctly that this is not there or not allowed, and
+         * asking again a moment later cannot change either one.
+         */
+        val TRANSIENT_ERRORS = setOf(
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+            PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
+        )
+        const val MAX_TRANSIENT_RETRIES = 3
+        const val TRANSIENT_RETRY_DELAY_MS = 2_000L
 
         /**
          * Plays a Dolby Vision track on a device that has no Dolby Vision decoder.
