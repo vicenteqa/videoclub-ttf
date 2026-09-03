@@ -122,10 +122,12 @@ fun PlayerScreen(
     /**
      * Whether the failure was really the account being busy.
      *
-     * Asked only when the failure is **not** a format one: a missing codec has nothing to do with
-     * how many connections are open, and asking there would be noise. The logic above gets its turn
-     * first, switching copies without bothering anybody, and this only speaks once that has no more
-     * copies to try.
+     * Asked only when the failure is [PlaybackFailure.isNetworkProblem] — a format problem has
+     * nothing to do with how many connections are open, and neither does
+     * `ERROR_CODE_FAILED_RUNTIME_CHECK`: measured directly, Media3's own stall watchdog fired an
+     * hour into a film nobody else was watching, and answering "la cuenta se está usando en otro
+     * aparato" for that is not an explanation, it is a second wrong guess on top of the first. The
+     * format-copy logic above still gets its turn first, switching without bothering anybody.
      */
     var accountBusy by remember { mutableStateOf(false) }
     LaunchedEffect(failure) {
@@ -135,7 +137,7 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
         if (problem.isFormatProblem && attempt + 1 < request.copies.size) return@LaunchedEffect
-        accountBusy = container.client.accountIsFull() == true
+        accountBusy = problem.isNetworkProblem && container.client.accountIsFull() == true
     }
 
     val audioSwitched = stringResource(
