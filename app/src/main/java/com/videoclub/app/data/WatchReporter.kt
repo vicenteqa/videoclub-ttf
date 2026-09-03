@@ -117,6 +117,41 @@ class WatchReporter(
         reported = null
     }
 
+    /**
+     * Called when Videoclub is no longer the one playing anything here — see `MainActivity.onStop`.
+     *
+     * On a box with one screen, going to the background usually means somebody switched to a
+     * different client on the same account. Without this, the panel kept crediting Videoclub for
+     * whatever was on last — up to twelve hours after the switch — because nothing ever told it
+     * playback had actually stopped; `settledOn` only speaks up when something *starts*.
+     *
+     * [reported] is cleared too: the panel has just been told this stopped, so the same title must
+     * be free to send again the moment playback resumes, rather than being swallowed by the dedupe.
+     */
+    fun stopped() {
+        reported = null
+        val config = settings.current
+        if (!config.reportsWhatIsOn) return
+
+        val body = JSONObject().apply { put("parado", true) }.toString()
+
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(config.reportUrl)
+                    .header("Authorization", "Bearer ${config.reportToken}")
+                    .post(body.toRequestBody(JSON))
+                    .build()
+                http.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) Log.i(TAG, "Reported to the panel: stopped")
+                    else Log.w(TAG, "The panel refused the stop report (${response.code})")
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Could not report stopping (${error.javaClass.simpleName})")
+            }
+        }
+    }
+
     /** The labels already sent, so the same list is not repeated on every launch. */
     private var sentLineup: String? = null
 
@@ -159,6 +194,53 @@ class WatchReporter(
                 // convenience fewer, not a fault.
                 sentLineup = null
                 Log.w(TAG, "Could not send the list (${error.javaClass.simpleName})")
+            }
+        }
+    }
+
+    /** The version already reported, so it is not repeated on every poll. */
+    private var reportedVersion: Int? = null
+
+    /**
+     * Tells the panel which version of the app is running here, and whether this device can update
+     * itself silently.
+     *
+     * `owner` matters as much as `version`: a household stuck on an old build with no device owner
+     * is not a bug in [Updater], it is the expected state until somebody visits with the device in
+     * hand — and that is exactly the distinction the panel needs to show, rather than a version
+     * number that never moves and no explanation why.
+     *
+     * Sent once per version and not on every poll — the version only changes on an install this app
+     * itself lives through — and, unlike [lineup], never reset on failure: nothing was recorded as
+     * sent, so the next poll simply tries again on its own.
+     */
+    fun version(code: Int, owner: Boolean) {
+        val config = settings.current
+        if (!config.reportsWhatIsOn) return
+        if (code == reportedVersion) return
+
+        val body = JSONObject().apply {
+            put("version", code)
+            put("owner", owner)
+        }.toString()
+
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url(config.reportUrl)
+                    .header("Authorization", "Bearer ${config.reportToken}")
+                    .post(body.toRequestBody(JSON))
+                    .build()
+                http.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        reportedVersion = code
+                        Log.i(TAG, "Reported the running version to the panel")
+                    } else {
+                        Log.w(TAG, "The panel refused the version report (${response.code})")
+                    }
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Could not report the version (${error.javaClass.simpleName})")
             }
         }
     }

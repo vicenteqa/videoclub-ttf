@@ -139,7 +139,11 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         screenWatch.stop()
-        (application as VideoclubApp).container.stopPolling()
+        val container = (application as VideoclubApp).container
+        container.stopPolling()
+        // Somebody switched away — most often to a different client on the same account, which is
+        // exactly the case the panel could not previously tell apart from "still watching here".
+        container.reporter.stopped()
     }
 
     /**
