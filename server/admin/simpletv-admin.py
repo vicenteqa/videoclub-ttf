@@ -73,6 +73,22 @@ APPS = {
 # Written by the shared section, into every household alike.
 SHARED_FIELDS = ("url", "userAgent")
 
+# Local channels no supplier carries, offered as a checkbox per household — see [extra_channels].
+# Hardcoded rather than editable from the panel: there are few of these, they change rarely, and a
+# form to type one in is one more place a URL gets fat-fingered into a household's document.
+CANALES_EXTRA = [
+    {
+        "id": "penedes-tv",
+        "nombre": "Penedès TV",
+        "url": "https://liveingesta118.cdnmedia.tv/rtvvilafrancalive/smil:live.smil/playlist.m3u8",
+        "logo": "https://graph.facebook.com/rtvvilafranca/picture?width=200&height=200",
+        "userAgent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/135.0.0.0 Safari/537.36 CrKey/1.44.191160"
+        ),
+    },
+]
+
 # A report bigger than this is not a report. The body is two short fields.
 MAX_REPORT_BYTES = 1024
 
@@ -181,46 +197,9 @@ def save_server(values):
 
 
 def extra_channels():
-    """
-    The catalogue of local channels no supplier carries, shared by every household.
-
-    A channel is defined once here and then only checked on or off per household — see
-    [apply_house]'s `canal_extra` handling — rather than its name, URL, logo and User-Agent being
-    retyped for each one, which is how the first of these (Penedès TV) ended up copy-pasted by hand
-    between two households' documents before this existed.
-    """
-    return state().get("canales_extra") or []
-
-
-def save_extra_channels(canales):
-    doc = state()
-    doc["canales_extra"] = canales
-    save_state(doc)
-
-
-def create_extra_channel(nombre, url, logo=None, user_agent=None):
-    """Adds a channel to the shared catalogue, or answers why not. Never touches any household's
-    own document — see [apply_house], which is what turns a checked box into one."""
-    nombre = (nombre or "").strip()
-    url = (url or "").strip()
-    if not nombre or not url:
-        return None, None
-    canales = extra_channels()
-    if any(c.get("url") == url for c in canales):
-        return None, f"«{nombre}» ya está de alta con esa URL."
-    base = slug(nombre)
-    cid, n = base, 2
-    while any(c.get("id") == cid for c in canales):
-        cid = f"{base}-{n}"
-        n += 1
-    entry = {"id": cid, "nombre": nombre, "url": url}
-    if logo and logo.strip():
-        entry["logo"] = logo.strip()
-    if user_agent and user_agent.strip():
-        entry["userAgent"] = user_agent.strip()
-    canales.append(entry)
-    save_extra_channels(canales)
-    return entry, None
+    """The catalogue of local channels no supplier carries — see [CANALES_EXTRA]. Only checked on
+    or off per household from here; see [apply_house]'s `canal_extra` handling."""
+    return CANALES_EXTRA
 
 
 def read_provider(path):
@@ -575,25 +554,9 @@ def apply_house(house_id, form):
         else:
             doc.pop("simple", None)
 
-        # A brand new channel, typed once from whichever household happens to want it first, joins
-        # the shared catalogue and is marked on for this one — see [create_extra_channel]. Every
-        # other household can then check the same box without retyping its URL.
+        # Which of the hardcoded catalogue this household has checked on — see [CANALES_EXTRA].
         catalogo = {c["id"]: c for c in extra_channels()}
-        nuevo_nombre_canal = form.get(prefix + "canal.nuevo.nombre", [""])[0]
-        nuevo_url_canal = form.get(prefix + "canal.nuevo.url", [""])[0]
         marcados = set(form.get(prefix + "canal_extra", []))
-        if nuevo_nombre_canal.strip() or nuevo_url_canal.strip():
-            entry, problem = create_extra_channel(
-                nuevo_nombre_canal,
-                nuevo_url_canal,
-                form.get(prefix + "canal.nuevo.logo", [""])[0],
-                form.get(prefix + "canal.nuevo.userAgent", [""])[0],
-            )
-            if problem:
-                errors.append(problem)
-            elif entry:
-                catalogo[entry["id"]] = entry
-                marcados.add(entry["id"])
 
         seleccion = []
         for cid in marcados:
@@ -2795,54 +2758,21 @@ def render_house(casa):
 
     # --- pestaña: canales extra
     #
-    # A checkbox per entry in the shared catalogue — see [extra_channels] — plus a small form to
-    # define one that does not exist yet anywhere. Both submit together with "Guardar": there is no
-    # separate save button here, same as Perfiles just above.
+    # A checkbox per entry in the hardcoded catalogue — see [CANALES_EXTRA]. Submits together with
+    # "Guardar": there is no separate save button here, same as Perfiles just above.
     if casa["app"] == "videoclub":
         catalogo = extra_channels()
         urls_casa = {c.get("url") for c in (doc.get("canales") or []) if c.get("url")}
         out.append(f"<div class=hoja id='canales-{ident}'>")
-        if catalogo:
-            out.append("<div class=gente><label>Canales de esta casa, además de los del proveedor</label>")
-            out.append("<div class=canalesextra>")
-            for entry in catalogo:
-                checked = " checked" if entry.get("url") in urls_casa else ""
-                out.append(
-                    f"<label class=nino><input type=checkbox name='{prefix}canal_extra' "
-                    f"value='{esc(entry['id'])}'{checked}> {esc(entry['nombre'])}</label>"
-                )
-            out.append("</div></div>")
-        else:
+        out.append("<div class=gente><label>Canales de esta casa, además de los del proveedor</label>")
+        out.append("<div class=canalesextra>")
+        for entry in catalogo:
+            checked = " checked" if entry.get("url") in urls_casa else ""
             out.append(
-                "<p class=hint>Todavía no hay ningún canal extra dado de alta en ninguna casa. "
-                "Añade el primero abajo.</p>"
+                f"<label class=nino><input type=checkbox name='{prefix}canal_extra' "
+                f"value='{esc(entry['id'])}'{checked}> {esc(entry['nombre'])}</label>"
             )
-        out.append("<div class=grid style='margin-top:1rem'>")
-        out.append(
-            f"<div class=full><label for='{prefix}canal-nuevo-nombre'>Nombre de un canal nuevo</label>"
-            f"<input type=text id='{prefix}canal-nuevo-nombre' name='{prefix}canal.nuevo.nombre' "
-            "placeholder='p. ej. Penedès TV'></div>"
-        )
-        out.append(
-            f"<div class=full><label for='{prefix}canal-nuevo-url'>URL (m3u8)</label>"
-            f"<input type=text id='{prefix}canal-nuevo-url' name='{prefix}canal.nuevo.url' "
-            "autocapitalize=off autocorrect=off spellcheck=false></div>"
-        )
-        out.append(
-            f"<div><label for='{prefix}canal-nuevo-logo'>Logo (opcional)</label>"
-            f"<input type=text id='{prefix}canal-nuevo-logo' name='{prefix}canal.nuevo.logo' "
-            "autocapitalize=off autocorrect=off spellcheck=false></div>"
-        )
-        out.append(
-            f"<div><label for='{prefix}canal-nuevo-agent'>User-Agent (opcional)</label>"
-            f"<input type=text id='{prefix}canal-nuevo-agent' name='{prefix}canal.nuevo.userAgent' "
-            "autocapitalize=off autocorrect=off spellcheck=false></div>"
-        )
-        out.append("</div>")
-        out.append(
-            "<p class=hint>Un canal nuevo se añade a todas las casas a la vez, marcado solo en "
-            "esta — las demás lo marcan luego sin volver a escribir la URL.</p>"
-        )
+        out.append("</div></div>")
         out.append("</div>")
 
     # --- pestaña: qué ve
