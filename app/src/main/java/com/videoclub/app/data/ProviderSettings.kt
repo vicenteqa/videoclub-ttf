@@ -58,6 +58,17 @@ class ProviderSettings(
     var tuneOrder: TuneOrder? = null
         private set
 
+    /**
+     * The last release the document carried, or null.
+     *
+     * Same shape as [tuneOrder] and for the same reason: only [apply] ever sets it, so a launch with
+     * no network compares against nothing rather than against a release that may since have been
+     * withdrawn.
+     */
+    @Volatile
+    var apkRelease: ApkRelease? = null
+        private set
+
     /** What the panel would hand to the next person created. Kept only to be written back. */
     val nextProfileId: Int
         get() = overrides.nextProfileId ?: ((profiles.maxOfOrNull { it.id } ?: -1) + 1)
@@ -65,16 +76,20 @@ class ProviderSettings(
     /**
      * Takes the hosted document as the new truth.
      *
-     * Returns whether anything the app acts on actually moved, which is the caller's cue to throw
-     * away the catalogue and re-read the people. An unchanged document — the overwhelmingly common
-     * case, since this runs on every launch — writes nothing and costs nothing.
+     * Returns whether the *account* moved — a different supplier, user or password — which is the
+     * caller's cue to throw away the catalogue and rebuild it: nothing else in the document changes
+     * what the supplier would answer. Something else changing (`simple`, `extraChannels`, a renamed
+     * profile…) is still adopted and cached below, just without paying for a rebuild that would not
+     * find anything different — flipping "Modo Simple" on and back off to try it used to cost a full
+     * catalogue rebuild for exactly that reason, comparing the whole config instead of the account.
      */
     fun apply(fetched: ProviderOverrides): Boolean {
         // First of all, and outside the shortcut below: a document whose only change is the "tune
-        // to this channel" errand does not move the configuration — the errand is not part of it —
+        // to this channel" errand — or a newly published release — does not move the configuration,
         // so the comparison that follows would say "nothing changed" and swallow it whole. And that
-        // is this function's normal case, not a rare one: sending a channel touches no account.
+        // is this function's normal case, not a rare one: neither touches the account.
         tuneOrder = fetched.tune
+        apkRelease = fetched.apk
 
         val updated = baked.mergedWith(fetched)
         val people = fetched.profiles ?: profiles
@@ -82,7 +97,10 @@ class ProviderSettings(
             return false
         }
 
-        val accountMoved = updated != current
+        val accountMoved = updated.baseUrl != current.baseUrl ||
+            updated.username != current.username ||
+            updated.password != current.password ||
+            updated.userAgent != current.userAgent
         current = updated
         profiles = people
         overrides = fetched
@@ -94,7 +112,7 @@ class ProviderSettings(
                 (if (accountMoved) " (account changed)" else "") +
                 " with ${people.size} profile(s)"
         )
-        return true
+        return accountMoved
     }
 
     private fun readCache(): ProviderOverrides {
