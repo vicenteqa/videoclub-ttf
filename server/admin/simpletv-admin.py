@@ -312,6 +312,7 @@ def _create_house(nombre, app, username, password):
     document.update(shared)
     document["username"] = username
     document["password"] = password
+    document["casa"] = nombre
     document["reportUrl"] = PUBLIC_BASE + "/informe"
     document.setdefault("reportToken", secrets.token_hex(24))
     if app == "videoclub" and not document.get("perfiles"):
@@ -481,10 +482,14 @@ def apply_house(house_id, form):
 
     errors = []
 
-    # The household's name lives in `casas.json`, not in its document: it is what we call it here,
-    # not something the television reads. And only the name ever changes — never the `id`, which is
-    # where its URL's secret segment, its Gradle flavour and its `local.properties` key all come
-    # from. Renaming a household must never force its APK to be rebuilt or its living room revisited.
+    # The name of record lives in `casas.json`, keyed by `id` — and only the name ever changes there,
+    # never the `id` itself, which is where its URL's secret segment, its Gradle flavour and its
+    # `local.properties` key all come from. Renaming a household must never force its APK to be
+    # rebuilt or its living room revisited. What *is* mirrored into the document below (`doc["casa"]`)
+    # is this same name, so that the television can show it too — see [_report]'s neighbour, the
+    # `AccountFooter` on the app's side: it used to fall back to the immutable flavour name for lack
+    # of anything better, which is how "suegros" ended up on a screen that should have said "Manel".
+    # A rename here reaches an already-installed box on its next poll, no rebuild involved.
     nuevo_nombre = form.get(prefix + "casa.nombre", [""])[0].strip()
     if not nuevo_nombre:
         errors.append(f"«{casa['nombre']}» no puede quedarse sin nombre.")
@@ -500,6 +505,8 @@ def apply_house(house_id, form):
                         c["nombre"] = nuevo_nombre
                 save_houses(casas)
                 casa = dict(casa, nombre=nuevo_nombre)
+    if casa["app"] == "videoclub":
+        doc["casa"] = casa["nombre"]
 
     for field in ("username", "password"):
         value = form.get(prefix + field, [""])[0].strip()
@@ -867,6 +874,11 @@ def sync_forget(house_id):
 ACTIVITY_PATH = os.path.join(STATE_DIR, "actividad.json")
 ACTIVITY_LOCK = threading.Lock()
 
+# ---------------------------------------------------- how long a connection has been open
+
+CONNECTION_PATH = os.path.join(STATE_DIR, "conexion.json")
+CONNECTION_LOCK = threading.Lock()
+
 
 MAX_LINEUP = 300
 
@@ -954,6 +966,74 @@ def read_lineup(house_id):
         return []
 
 
+def version_path(house_id):
+    return os.path.join(WATCH_DIR, f"{house_id}.version.json")
+
+
+def read_running_version(house_id):
+    """
+    What the app itself last said it is running, or None. See `_report`'s "version" branch.
+
+    `owner` travels with `version` and not apart from it, because the two answer one question
+    together: an old version on a device that is not the owner is exactly what is expected until
+    somebody visits with it in hand, and showing the number alone would read as a fault instead.
+    """
+    try:
+        with open(version_path(house_id), encoding="utf-8") as handle:
+            doc = json.load(handle)
+        if not isinstance(doc, dict) or not isinstance(doc.get("version"), int):
+            return None
+        return doc
+    except Exception:
+        return None
+
+
+def publish_release(house_id, version, sha256, filename):
+    """
+    Writes directly into a household's document that a new release is ready. The APK itself is
+    already in place — `publish.sh` uploaded it by scp before calling this — so all that is left is
+    for the household to find out. Returns the problem, or None.
+
+    There is no longer a separate "staged, not yet sent" step: the device itself decides when to
+    ask, via the icon beside `TV` or, in simple mode, by holding OK over the channel list — so
+    holding a release back after it is uploaded protects nobody.
+
+    Unlike [send_channel], this is not an errand with a short fuse: a release stays offered until a
+    newer one replaces it, because a box that is off for a week should still find it waiting when it
+    comes back — [Updater] on the app's side re-reads the document until it does.
+    """
+    casa = next((c for c in houses() if c["id"] == house_id), None)
+    if not casa:
+        return "Esa casa ya no está en la lista."
+    try:
+        version = int(version)
+    except (TypeError, ValueError):
+        return "Versión inválida."
+    if version <= 0:
+        return "Versión inválida."
+    filename = (filename or "").strip()
+    if not filename:
+        return "Falta el nombre del fichero."
+
+    doc, error = read_provider(casa["provider"])
+    if doc is None:
+        return error or "No se puede leer el documento de esa casa."
+
+    segment = os.path.basename(os.path.dirname(casa["provider"]))
+    web = APPS.get(casa["app"], {}).get("web", "/videoclub")
+    doc["apk"] = {
+        "version": version,
+        "url": f"{PUBLIC_BASE}{web}/{segment}/{filename}",
+        "sha256": (sha256 or "").strip(),
+        "cuando": int(time.time()),
+    }
+    try:
+        write_json(casa["provider"], doc, mode=0o644)
+    except Exception:
+        return "No se ha podido escribir el documento."
+    return None
+
+
 def read_activity():
     """When each household was last seen in use: `{household: epoch}`."""
     try:
@@ -985,6 +1065,40 @@ def note_activity(house_id):
             return
         doc[house_id] = ahora
         write_json(ACTIVITY_PATH, doc)
+
+
+def read_connections():
+    try:
+        with open(CONNECTION_PATH, encoding="utf-8") as handle:
+            doc = json.load(handle)
+        return doc if isinstance(doc, dict) else {}
+    except Exception:
+        return {}
+
+
+def connection_started(house_id, activas):
+    """
+    Since when this household's connection has been open without a gap, or None while it is closed.
+
+    Sampled the same way [note_activity] is — only when somebody has the panel open, at most once
+    every couple of minutes — so this is a floor too: a connection open for an hour before anybody
+    first looked today reads as "just started". What it fixes is worse: without remembering
+    anything, every page load would have nothing truthful to say about how long a connection already
+    open has lasted, because the only timestamp on hand — when the current channel or title was
+    settled on — answers "what", not "since when connected", and the two drift apart the moment
+    someone leaves a film running for an hour without touching anything.
+    """
+    with CONNECTION_LOCK:
+        doc = read_connections()
+        if activas > 0:
+            if not doc.get(house_id):
+                doc[house_id] = int(time.time())
+                write_json(CONNECTION_PATH, doc)
+            return doc.get(house_id)
+        if doc.get(house_id):
+            doc.pop(house_id, None)
+            write_json(CONNECTION_PATH, doc)
+        return None
 
 
 def fecha_corta(epoch):
@@ -1032,13 +1146,20 @@ def watch_path(house_id):
     return os.path.join(WATCH_DIR, f"{house_id}.json")
 
 
-def read_watch(house_id):
+def _read_watch_raw(house_id):
+    """The watch file exactly as stored, historial included — unlike [read_watch], which answers
+    None once nothing is playing right now (see [record_stopped])."""
     try:
         with open(watch_path(house_id), encoding="utf-8") as handle:
             doc = json.load(handle)
-        return doc if isinstance(doc, dict) and doc.get("canal") else None
+        return doc if isinstance(doc, dict) else {}
     except Exception:
-        return None
+        return {}
+
+
+def read_watch(house_id):
+    doc = _read_watch_raw(house_id)
+    return doc if doc.get("canal") else None
 
 
 def record_watch(house_id, que, tipo="canal"):
@@ -1054,7 +1175,7 @@ def record_watch(house_id, que, tipo="canal"):
     """
     ahora = int(time.time())
     with WATCH_LOCK:
-        previo = read_watch(house_id) or {}
+        previo = _read_watch_raw(house_id)
         historial = [
             e for e in (previo.get("historial") or [])
             if isinstance(e, dict) and e.get("que")
@@ -1069,6 +1190,25 @@ def record_watch(house_id, que, tipo="canal"):
             "desde": ahora,
             "historial": historial[:WATCH_HISTORY],
         })
+
+
+def record_stopped(house_id):
+    """
+    Videoclub saying it is no longer the one playing anything here — sent when it goes to the
+    background, which on a box with one screen usually means somebody switched to a different
+    client on the same account.
+
+    Sin esto, "Viendo Drácula" se quedaba en la ficha hasta doce horas después de que alguien
+    hubiera cambiado a otra app: el aviso de que un informe viejo ya no describe lo que hay puesto
+    ahora (ver `fresco` en el script) solo protegía frente al tiempo, no frente a un cambio de
+    cliente el mismo rato. Esto lo cierra de raíz en vez de acortar esa ventana a ciegas: se borra
+    la línea de "ahora mismo" (para que [read_watch] vuelva a contestar None) sin tocar el
+    historial, así que si la cuenta sigue en uso el panel pasa a "Cliente desconocido" en vez de
+    seguir dando crédito a Videoclub.
+    """
+    with WATCH_LOCK:
+        historial = _read_watch_raw(house_id).get("historial") or []
+        write_json(watch_path(house_id), {"historial": historial})
 
 
 # How Xtream suppliers name their adult channels. Two lists rather than one because not every word
@@ -1238,11 +1378,17 @@ def all_status():
     def one(casa):
         doc, _ = read_provider(casa["provider"])
         status = provider_status(doc or {})
+        activas = status.get("activas") or 0
         # An open connection is the household being used, whether with our app or with anything
         # else. It is noted in passing, which is the only way to have a last-used date that does not
         # depend on the APK.
-        if (status.get("activas") or 0) > 0:
+        if activas > 0:
             note_activity(casa["id"])
+        # Two different questions, both answered here so the card does not have to guess which one
+        # it is looking at: "since when has this been open" only means anything while it is open,
+        # and "when was it last seen" only means anything once it is not.
+        status["conectado_desde"] = connection_started(casa["id"], activas)
+        status["ultima_vez"] = last_used(casa["id"])
         # Only the latest, never the whole list. The page asks for this by itself every time it is
         # opened; what somebody has been watching is sent when "Qué ve" is pressed and not before.
         visto = read_watch(casa["id"])
@@ -1263,6 +1409,46 @@ PAPELERA = (
     "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
     "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
     "<path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v5M14 11v5'/></svg>"
+)
+
+# Same treatment: hand-drawn, not fetched from anywhere. The two ways off this page, drawn rather
+# than named in text, so both fit next to the title without turning the header into a sentence.
+CASA = (
+    "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
+    "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
+    "<path d='M3 11l9-7 9 7M5 10v9h14v-9M10 19v-6h4v6'/></svg>"
+)
+SERVIDOR = (
+    "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
+    "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
+    "<path d='M4 4h16v4H4zM4 10h16v4H4zM4 16h16v4H4zM7 6h.01M7 12h.01M7 18h.01'/></svg>"
+)
+# The third way off the page: an arrow into a tray, the usual pictogram for "download" — same
+# treatment as the two above, hand-drawn rather than fetched.
+DESCARGAS = (
+    "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
+    "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
+    "<path d='M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16'/></svg>"
+)
+
+# The usual open-eye / crossed-out-eye pair for "ver la contraseña" — drawn once here, toggled with
+# `hidden` in JS rather than swapped in and out of the DOM, so there is nothing for the button's own
+# click handler to build.
+OJO = (
+    "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
+    "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
+    "<path d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z'/><circle cx='12' cy='12' r='3'/></svg>"
+)
+OJO_CERRADO = (
+    "<svg viewBox='0 0 24 24' width=15 height=15 fill=none stroke=currentColor stroke-width=1.8 "
+    "stroke-linecap=round stroke-linejoin=round aria-hidden=true>"
+    "<path d='M3 3l18 18M9.9 5.2A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.7C4 8.4 2 12 2 12s3.6 7 10 7c1.3 0 2.5-.2 3.6-.7'/>"
+    "<path d='M9.5 9.6A3 3 0 0 0 14.4 13.4'/></svg>"
+)
+BOTON_VER = (
+    f"<button type=button title=Ver aria-label=Ver>"
+    f"<span class=ojo-abierto>{OJO}</span>"
+    f"<span class=ojo-cerrado hidden>{OJO_CERRADO}</span></button>"
 )
 
 STYLE = r"""
@@ -1316,15 +1502,16 @@ h1{
 }
 .tag{color:var(--mute); font-size:var(--t-sm); letter-spacing:.2em; text-transform:uppercase}
 .live{margin-left:auto;display:flex;align-items:center;gap:.5rem;color:var(--phos-dim);font-size:var(--t-sm);letter-spacing:.18em}
-/* The way from one view to the other. A link and not a button: it is navigation, not an action, so
-   it must open in another tab and survive JavaScript failing to load. */
-.ir{
-  background:transparent;border:1px solid var(--line);color:var(--mute);text-decoration:none;
-  font:inherit;font-size:var(--t-xs);letter-spacing:.16em;text-transform:uppercase;
-  padding:.42rem .72rem;border-radius:var(--r-sm);white-space:nowrap;
-  transition:color .16s,border-color .16s;
+/* The two ways off this page, always both present, one of them already where you are. Links, not
+   buttons: navigation, not an action, so they must survive JavaScript failing to load. */
+.paginas{display:flex;gap:.5rem}
+.icono{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:2rem;height:2rem;background:transparent;border:1px solid var(--line);color:var(--mute);
+  border-radius:var(--r-sm);transition:color .16s,border-color .16s;
 }
-.ir:hover{color:var(--phos);border-color:var(--phos-dim)}
+.icono:hover{color:var(--phos);border-color:var(--phos-dim)}
+.icono.activo{color:var(--phos);border-color:var(--phos-dim);background:rgba(94,242,160,.07)}
 a.nada{color:var(--phos-dim);text-decoration:none;border-bottom:1px dotted var(--phos-dim)}
 a.nada:hover{color:var(--phos)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--phos);box-shadow:0 0 10px var(--phos);animation:p 2.4s ease-in-out infinite}
@@ -1368,10 +1555,26 @@ select{
 .pw{position:relative}
 .pw button{
   position:absolute;right:.45rem;top:50%;transform:translateY(-50%);
+  display:flex;align-items:center;justify-content:center;
+  width:1.9rem;height:1.9rem;padding:0;line-height:0;
   background:transparent;border:1px solid var(--line);color:var(--mute);
-  font:inherit;font-size:var(--t-xs);letter-spacing:.14em;padding:.32rem .5rem;border-radius:var(--r-sm);cursor:pointer;
+  border-radius:var(--r-sm);cursor:pointer;transition:color .16s,border-color .16s;
 }
 .pw button:hover{color:var(--phos);border-color:var(--phos-dim)}
+/* The page-wide `button:active{transform:translateY(1px)}` (below) does not add to this button's
+   own `translateY(-50%)` — a `transform` from one rule replaces the whole property, it does not
+   compose with another rule's — so pressing it was discarding the centering entirely and the button
+   jumped to the top of `.pw`. Folding the same 1px nudge into the centering value keeps the press
+   feedback without losing it. */
+.pw button:active:not(:disabled){transform:translateY(calc(-50% + 1px))}
+/* The two icons swapping which one is `hidden` must never change the button's own box — it is
+   `position:absolute; top:50%` inside `.pw`, so any change to its height re-centers it and reads as
+   the button sliding. `display:contents` takes the `<span>` wrappers out of layout entirely, so only
+   whichever single SVG is visible ever has a box, at the button's own fixed size. */
+.pw button span{display:contents}
+/* `[hidden]` on its own lost to the rule above — same specificity fight `.acciones[hidden]` already
+   had to win once elsewhere on this page — so it needs the extra class here too. */
+.pw button span[hidden]{display:none}
 
 .gente{margin-top:1.1rem}
 .persona{display:flex;align-items:center;gap:.7rem;margin-bottom:.5rem}
@@ -1468,6 +1671,11 @@ dialog.ficha[open]:not(:modal){
 dialog.ficha .pestanas{margin:1rem 1.15rem 0}
 dialog.ficha .hoja{padding:1.15rem}
 dialog.ficha .acciones{margin:0 1.15rem 1.15rem}
+/* `.acciones.pie` sits beside the `.hoja` divs, so this margin is what lines it up with their own
+   padding. A tab-specific row like "Poner canal"'s "Enviar" lives *inside* its `.hoja` on purpose —
+   so it hides along with the tab — which already carries that padding; adding the same margin again
+   doubled the inset and left the button narrower than the field above it. */
+dialog.ficha .hoja .acciones{margin-left:0;margin-right:0;margin-bottom:0}
 .bolita.viendo{background:var(--phos);box-shadow:0 0 9px var(--phos);animation:p 2.4s ease-in-out infinite}
 .bolita.parada{background:var(--alarm);opacity:.75}
 
@@ -1606,6 +1814,39 @@ function hace(desde){
     {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 
+// Same graduated read as the server's own `fecha_corta` — minutes, then hours, then "ayer", then a
+// handful of days, then a bare date — kept in step by hand because it answers a question
+// (`ultima_vez`) that can only be settled once `/estado` has come back, unlike everything else
+// `fecha_corta` renders straight into the page.
+function fechaCorta(epoch){
+  if (!epoch) return '';
+  var minutos = Math.max(0, Math.floor((Date.now()/1000 - epoch) / 60));
+  if (minutos < 60) return 'hace ' + minutos + ' min';
+  var horas = Math.floor(minutos / 60);
+  if (horas < 24) return 'hace ' + horas + ' h';
+  var dias = Math.floor(horas / 24);
+  if (dias === 1) return 'ayer';
+  if (dias < 7) return 'hace ' + dias + ' días';
+  var f = new Date(epoch * 1000);
+  return String(f.getDate()).padStart(2, '0') + '/' + String(f.getMonth() + 1).padStart(2, '0') +
+    '/' + f.getFullYear();
+}
+
+// Deliberately its own wording rather than `fechaCorta` reused: "ayer" or a bare date read fine for
+// something that is over, but "ayer" here reads as still connected since yesterday, which for a
+// live stream nobody believes and nobody should — a connection that has survived a whole day is
+// worth showing exactly as many days, not folding into the same "sounds distant" bucket as a
+// household nobody has checked on in a week.
+function conectadoDesde(epoch){
+  if (!epoch) return '';
+  var minutos = Math.max(0, Math.floor((Date.now()/1000 - epoch) / 60));
+  if (minutos < 60) return 'hace ' + minutos + ' min';
+  var horas = Math.floor(minutos / 60);
+  if (horas < 24) return 'hace ' + horas + ' h';
+  var dias = Math.floor(horas / 24);
+  return 'hace ' + dias + ' día' + (dias === 1 ? '' : 's');
+}
+
 // Save only when there is something to save. It starts enabled in the HTML and this disables it:
 // the other way round, a JavaScript failure would leave a page where nothing can be saved.
 document.querySelectorAll('form.seccion').forEach(function(form){
@@ -1661,11 +1902,16 @@ document.querySelectorAll('form.seccion').forEach(function(form){
 });
 
 document.querySelectorAll('.pw button').forEach(function(b){
+  var abierto = b.querySelector('.ojo-abierto');
+  var cerrado = b.querySelector('.ojo-cerrado');
   b.addEventListener('click', function(){
     var i = b.parentNode.querySelector('input');
     var shown = i.type === 'text';
     i.type = shown ? 'password' : 'text';
-    b.textContent = shown ? 'VER' : 'OCULTAR';
+    abierto.hidden = !shown;
+    cerrado.hidden = shown;
+    b.title = shown ? 'Ver' : 'Ocultar';
+    b.setAttribute('aria-label', b.title);
   });
 });
 
@@ -1847,11 +2093,13 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
   fetch('estado', {cache: 'no-store'}).then(function(r){ return r.json(); }).then(function(todo){
     var vivas = 0, total = 0, viendo = 0;
     Object.keys(todo).forEach(function(id){
-      var caja = document.getElementById('estado-' + id);
-      if (!caja) return;
       var d = todo[id];
       total++;
 
+      // These two only exist on the casas page — a household has no card at all on /servidor — but
+      // the counters above and below do not depend on either: an account being active or not is a
+      // fact from the supplier, not a fact about which page happens to be open right now.
+      var caja = document.getElementById('estado-' + id);
       var vence = document.getElementById('vence-' + id);
 
       if (d.error) {
@@ -1859,7 +2107,7 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
         // for the same reason the send-a-channel button is left as it was: refusing an action
         // because we could not ask would turn a supplier's failure into a limitation of ours.
         pinta(id, 'gris');
-        caja.innerHTML = linea(escapar(d.error), 'mal');
+        if (caja) caja.innerHTML = linea(escapar(d.error), 'mal');
         if (vence) vence.innerHTML = '';
         return;
       }
@@ -1868,25 +2116,45 @@ document.querySelectorAll('.pestanas').forEach(function(barra){
       if (vivo) vivas++;
       var enUso = d.activas > 0;
       if (enUso) viendo++;
-      var html = '';
 
       // Whether somebody is watching fits in a dot, and that is where it goes: it is what gets
       // glanced at from across the table, and it used to take a whole row of text.
       pinta(id, enUso ? 'viendo' : 'parada');
 
-      // An old report does not describe what is on now: the app speaks up when it settles on
-      // something and then says nothing more, so after a few hours it only serves as "the last
-      // thing that was watched".
+      // The heading's own line, resolved for real now that the supplier has answered: while
+      // connected it says how long, which local files alone could never say; once it is not, it
+      // falls back to the last-seen date the heading was rendered with initially.
+      var usadaEl = document.getElementById('usada-' + id);
+      if (usadaEl) {
+        usadaEl.textContent = enUso
+          ? conectadoDesde(d.conectado_desde)
+          : fechaCorta(d.ultima_vez);
+      }
+
+      // Nothing left to paint here on /servidor, where no household has a card — but everything
+      // above (the aggregate counters, the dot, the heading line) has already happened by now.
+      if (!caja) return;
+
+      var html = '';
+
+      // Videoclub clears `visto` itself the moment it goes to the background (see
+      // `record_stopped`), so this is a fallback for the one case that misses — a report that
+      // never arrived, a box that lost power mid-film — not the main defence any more: after a few
+      // hours an entry that is still there only serves as "the last thing that was watched".
       var fresco = d.visto && (Date.now()/1000 - d.visto.desde) < 12 * 3600;
 
-      // The "what" only when it is known. There used to be a row explaining why it was not, and it
-      // was a line of apology on the card of every household that has never reported. Whether it is
-      // running or idle is not written either: the dot in the heading says that, and repeating it in
-      // words is a whole row saying nothing new.
+      // The "what" only while it is happening, and only the what: the dot already says whether it
+      // is running, and "hace 20 min" turned out to tell nobody anything they needed — the account
+      // being active plus the current content was the whole question. Offline, this says nothing at
+      // all: "cuándo" already lives in the card's own heading (see `fecha_corta` / `last_used`), and
+      // what was last watched is not asked for once nobody is watching it.
       if (enUso && fresco) {
-        html += linea(escapar(d.visto.canal) + ' · ' + hace(d.visto.desde), 'bien');
-      } else if (d.visto) {
-        html += linea(escapar(d.visto.canal) + ' · ' + hace(d.visto.desde));
+        html += linea(escapar(d.visto.canal), 'bien');
+      } else if (enUso) {
+        // The supplier says the account is in use and our own app has nothing recent to say about
+        // it: somebody is watching, just not through here. Worth a line of its own rather than
+        // silence, which used to read as "nothing is happening" — the opposite of what is true.
+        html += linea('Cliente desconocido', 'bien');
       }
 
       // A rejected account does stay on the card: it is an alarm, not a datum, and the dot does not
@@ -1920,21 +2188,39 @@ def when(mtime):
     return time.strftime("%d/%m/%Y %H:%M", time.localtime(mtime)) if mtime else "nunca escrito"
 
 
-def shell(titulo, nav=""):
+def shell(activo):
     """
     Everything before the content, which is identical in both views.
 
     The status bar lives here rather than only on the front page deliberately: what it checks is
     whether the suppliers answer, which is exactly what the server view is about.
+
+    `activo` is "casas", "servidor" or "apks": every destination is always shown, next to the title,
+    and the current one carries `aria-current` and its own style — not a single "go to the other
+    page" link, which only ever pointed one way. The `<h1>` no longer needs to say which one that is
+    — the icons already do — and keeping it fixed is what stops the header reflowing by a few pixels
+    on every navigation, which "Videoclub" ⇄ "Servidor" used to do.
     """
+    nav = (
+        "<nav class=paginas>"
+        f"<a class='icono{' activo' if activo == 'casas' else ''}' href='./' "
+        f"{'aria-current=page ' if activo == 'casas' else ''}title=Videoclub>{CASA}</a>"
+        f"<a class='icono{' activo' if activo == 'servidor' else ''}' href='servidor' "
+        f"{'aria-current=page ' if activo == 'servidor' else ''}title=Servidor>{SERVIDOR}</a>"
+        f"<a class='icono{' activo' if activo == 'apks' else ''}' href='apks' "
+        f"{'aria-current=page ' if activo == 'apks' else ''}title=Descargas>{DESCARGAS}</a>"
+        "</nav>"
+    )
+    titulo_pestana = {"servidor": "Servidor", "apks": "Descargas"}.get(activo, "Videoclub")
     return [
         "<!doctype html><html lang=es><head><meta charset=utf-8>",
         "<meta name=viewport content='width=device-width,initial-scale=1'>",
         "<meta name=color-scheme content=dark>",
-        f"<title>{esc(titulo)} · Control</title>",
+        f"<title>{esc(titulo_pestana)} · Control</title>",
         f"<style>{STYLE}</style></head><body><div class=wrap>",
-        f"<header><h1>{esc(titulo)}</h1><span class=tag>panel de control</span>",
+        "<header><h1>Videoclub</h1>",
         nav,
+        "<span class=tag>panel de control</span>",
         "<span class=live><span class='dot gris' id=punto></span>",
         "<span id=rotulo>consultando</span></span></header>",
     ]
@@ -1980,6 +2266,87 @@ def tail(guardado=None, toasts=()):
     return out
 
 
+def list_apks():
+    """
+    The newest `.apk` sitting in each household's own secret directory, one row per household.
+
+    Reads the same directory `publish.sh` already uploads to — deliberately no separate store to
+    keep of its own: a build left there for any casa (published as the official update or not) shows
+    up here for nothing, and a household renamed or deleted needs no second migration on top of the
+    one `apply_house`/id changes already require. `casas.json` is the one list of truth.
+
+    Only the latest: older builds pile up in that same directory — `publish.sh` never deletes one —
+    but they are not what this view is for. Anyone reaching for an APK here wants what runs today,
+    not an archive of everything that ever ran.
+    """
+    filas = []
+    for casa in houses():
+        directorio = os.path.dirname(casa["provider"])
+        try:
+            nombres = [n for n in os.listdir(directorio) if n.endswith(".apk")]
+        except OSError:
+            continue
+        mejor = None
+        for nombre in nombres:
+            try:
+                st = os.stat(os.path.join(directorio, nombre))
+            except OSError:
+                continue
+            if mejor is None or st.st_mtime > mejor["cuando"]:
+                mejor = {"archivo": nombre, "tamano": st.st_size, "cuando": int(st.st_mtime)}
+        if mejor is None:
+            continue
+        filas.append({"id": casa["id"], "nombre": casa["nombre"], **mejor})
+    filas.sort(key=lambda f: f["cuando"], reverse=True)
+    return filas
+
+
+def tamano_legible(bytes_):
+    valor = float(bytes_)
+    for unidad in ("B", "KB", "MB", "GB"):
+        if valor < 1024 or unidad == "GB":
+            return f"{valor:.0f} {unidad}" if unidad == "B" else f"{valor:.1f} {unidad}"
+        valor /= 1024
+    return f"{valor:.1f} GB"
+
+
+def render_apks(guardado=None):
+    """
+    The latest APK for each casa, one place to fetch them from — a browser tab open on a phone in
+    the room where the box lives, rather than a laptop's `adb` reaching across the house's wifi.
+    See [list_apks] for where these come from and why only the newest; nothing here writes anything.
+    """
+    out = shell("apks")
+    filas = list_apks()
+
+    out.append("<fieldset><legend>Descargas</legend>")
+    if not filas:
+        out.append(
+            "<p class=hint>Nada publicado todavía. <code>./publish.sh --casa &lt;id&gt;</code> "
+            "deja aquí lo que sube.</p>"
+        )
+    else:
+        out.append("<div class=visto><div class=grupo>Última versión de cada casa</div>")
+        for fila in filas:
+            enlace = (
+                "apks/descargar?casa=" + urllib.parse.quote(fila["id"], safe="") +
+                "&archivo=" + urllib.parse.quote(fila["archivo"], safe="")
+            )
+            out.append(
+                "<div class=fila>"
+                f"<a class=que href='{enlace}'>{esc(fila['nombre'])} · {esc(fila['archivo'])}</a>"
+                f"<span class=cuando>{tamano_legible(fila['tamano'])} · "
+                f"{when(fila['cuando'])}</span>"
+                "</div>"
+            )
+        out.append("</div>")
+    out.append("</fieldset>")
+
+    out.append("</div>")
+    out += tail(guardado)
+    return "".join(out)
+
+
 def render_server(guardado=None, errors=(), avisos=()):
     """
     The server view: the address and the User-Agent, and nothing else.
@@ -1991,8 +2358,7 @@ def render_server(guardado=None, errors=(), avisos=()):
     """
     shared = server()
 
-    # El enlace nombra su destino, y su destino ya no se llama «Casas».
-    out = shell("Servidor", "<a class=ir href='./'>← Videoclub</a>")
+    out = shell("servidor")
     avisar = alerts(errors=errors, avisos=avisos)
 
     out.append("<fieldset><legend>Proveedor</legend>")
@@ -2019,7 +2385,7 @@ def render_server(guardado=None, errors=(), avisos=()):
 def render(guardado=None, errors=(), note=None, avisos=(), alta=()):
     casas = houses()
 
-    out = shell("Videoclub", "<a class=ir href='servidor'>Servidor →</a>")
+    out = shell("casas")
     avisar = alerts(errors=errors, note=note, avisos=avisos)
 
     out.append("<fieldset><legend>Casas</legend>")
@@ -2099,7 +2465,7 @@ def render_alta(errors=()):
         "<div><label for=nuevo-pass>Contraseña</label><div class=pw>"
         "<input type=password id=nuevo-pass name=password required "
         "autocapitalize=off autocorrect=off spellcheck=false>"
-        "<button type=button>VER</button></div></div>"
+        f"{BOTON_VER}</div></div>"
     )
     campos.append("</div>")
     campos.append("</div>")
@@ -2144,16 +2510,13 @@ def render_house(casa):
     # --------------------------------------------------------------------------------- la tarjeta
     # The application's name used to sit under the household's. It is redundant now that there is
     # only one: repeating "videoclub" on every card tells none of them apart. That slot now carries
-    # the last time anything was heard from the household, which does tell them apart — and only when
-    # it is known, because a freshly created household has none and a "never" there would read as a
-    # fault.
-    usada = ""
+    # the last time anything was heard from the household — filled in twice. First from here, from
+    # local files only, so there is something to read before the supplier has answered anything.
+    # Then again from `/estado`, once it is known whether the connection is open right now: while it
+    # is, "última vez" is the wrong question — [connection_started] answers the one that matters
+    # then, which local files alone cannot.
     cuando = last_used(casa["id"])
-    if cuando:
-        usada = (
-            f"<p class=que title='Última vez que se vio esta casa en uso'>"
-            f"{esc(fecha_corta(cuando))}</p>"
-        )
+    usada = f"<p class=que id='usada-{ident}'>{esc(fecha_corta(cuando)) if cuando else ''}</p>"
 
     # The dot starts grey: whether anything is running is answered by the supplier, and that arrives
     # after the page is drawn. Grey means "I do not know yet", which is true on opening.
@@ -2260,7 +2623,7 @@ def render_house(casa):
         f"<input type=password id='{prefix}password' name='{prefix}password' "
         f"value='{esc(doc.get('password'))}' placeholder='vacía' "
         "autocapitalize=off autocorrect=off spellcheck=false>"
-        "<button type=button>VER</button></div></div>"
+        f"{BOTON_VER}</div></div>"
     )
     if casa["app"] == "simpletv":
         out.append(
@@ -2275,15 +2638,35 @@ def render_house(casa):
         checked = " checked" if doc.get("simple") else ""
         out.append(
             f"<div class=full><label class=nino>"
-            f"<input type=checkbox name='{prefix}simple'{checked}> Modo simple "
-            "(sólo televisión en directo, como SimpleTV)</label></div>"
+            f"<input type=checkbox name='{prefix}simple'{checked}> Modo Simple</label></div>"
         )
     out.append("</div>")
     # What the supplier answers about the account. Filled in by itself after the page is drawn, and
     # here rather than on the card: the expiry date is an account detail, looked at on the day it is
     # renewed and not every time the panel is opened to see who is watching something.
     out.append(f"<div class=cuentaestado id='vence-{ident}'></div>")
-    out.append(f"<p class=url>{esc(casa['url'])}<br>Última escritura · {esc(when(mtime))}</p>")
+    out.append(f"<p class=url>Último cambio: {esc(when(mtime))}</p>")
+
+    # SimpleTV is being retired and never got this far; it would need a build of its own to make any
+    # of this true.
+    if casa["app"] == "videoclub":
+        running = read_running_version(casa["id"])
+        apk = doc.get("apk") or {}
+        publicada = apk.get("version")
+
+        if running:
+            out.append(f"<p class=url>Versión: {running['version']}</p>")
+        else:
+            out.append("<p class=url>Versión: sin reportar todavía</p>")
+
+        # Purely informational: there is no button here any more, since the device itself is what
+        # decides when to catch up — the icon beside `TV`, or holding OK over the channel list in
+        # simple mode.
+        if publicada and running and running["version"] != publicada:
+            out.append(
+                f"<p class=hint>Versión publicada: {publicada} · la casa todavía no se ha puesto "
+                "al día.</p>"
+            )
     out.append("</div>")
 
     # --- pestaña: perfiles
@@ -2445,6 +2828,38 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         return parse_qs(self.rfile.read(length).decode("utf-8"), keep_blank_values=True)
 
+    def _send_apk(self):
+        """
+        One file from [list_apks], streamed to whoever asked — nginx's Basic Auth in front of
+        `/panel/` is the only gate, the same as every other view here.
+
+        `archivo` never carries a `/`: the pattern below refuses anything that does, so there is no
+        path to walk out of the household's own directory with. Checked against the directory
+        listing too, rather than just against the pattern, so a name that merely *looks* like an APK
+        cannot be used to read some other file sitting there.
+        """
+        pedida = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        casa_id = pedida.get("casa", [""])[0]
+        archivo = pedida.get("archivo", [""])[0]
+        casa = next((c for c in houses() if c["id"] == casa_id), None)
+        if not casa or not re.fullmatch(r"[A-Za-z0-9_.-]+\.apk", archivo):
+            return self._send("No encontrado.", status=404)
+        directorio = os.path.dirname(casa["provider"])
+        if archivo not in os.listdir(directorio):
+            return self._send("No encontrado.", status=404)
+        try:
+            with open(os.path.join(directorio, archivo), "rb") as handle:
+                payload = handle.read()
+        except OSError:
+            return self._send("No se pudo leer.", status=500)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Disposition", f"attachment; filename=\"{archivo}\"")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_HEAD(self):
         self._send("", head_only=True)
 
@@ -2468,6 +2883,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(watch_history(house_id))
             except Exception:
                 return self._send_json({"canales": [], "series": [], "pelis": []})
+        if path.endswith("/apks/descargar"):
+            return self._send_apk()
+        if path.endswith("/apks"):
+            try:
+                return self._send(render_apks())
+            except Exception as error:
+                return self._send(f"<pre>No se pudo leer la lista: {esc(error)}</pre>", 500)
         if path.endswith("/casas"):
             # For the build machine: name, app and URL. Never the credentials — the APK does not
             # need them, and this is the one endpoint a script leaves in a shell history.
@@ -2520,6 +2942,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._report()
         if path.endswith("/sync"):
             return self._sync_push()
+        if path.endswith("/liberar"):
+            # For `publish.sh`, not for a browser: it has already scp'd the APK by the time this is
+            # called, and answers JSON rather than a redirect for the same reason `/informe` does.
+            # There is no separate "send" step any more — the device itself decides when to catch
+            # up, so publishing writes the document directly.
+            form = self._form()
+            problem = publish_release(
+                form.get("casa", [""])[0],
+                form.get("version", [""])[0],
+                form.get("sha256", [""])[0],
+                form.get("filename", [""])[0],
+            )
+            if problem:
+                return self._send_json({"error": problem}, status=400)
+            return self._send_json({"ok": True})
         try:
             if path.endswith("/crear"):
                 form = self._form()
@@ -2661,6 +3098,35 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 write_json(lineup_path(casa["id"]), {"canales": canales,
                                                      "cuando": int(time.time())})
+            except Exception:
+                return self._send_json({"error": "disco"}, status=500)
+            return self._send_json({"ok": True})
+
+        # A fourth thing that arrives through the same door: "I am no longer the one playing
+        # anything here" — sent when Videoclub goes to the background. See [record_stopped].
+        if doc.get("parado"):
+            try:
+                record_stopped(casa["id"])
+            except Exception:
+                return self._send_json({"error": "disco"}, status=500)
+            return self._send_json({"ok": True})
+
+        # A third thing that arrives through the same door: "this is the version I am running, and
+        # whether I can update myself silently". See [Updater] on the app's side for `owner`.
+        if "version" in doc:
+            try:
+                version = int(doc.get("version"))
+                owner = bool(doc.get("owner"))
+            except Exception:
+                return self._send_json({"error": "cuerpo"}, status=400)
+            if version <= 0:
+                return self._send_json({"error": "cuerpo"}, status=400)
+            try:
+                write_json(version_path(casa["id"]), {
+                    "version": version,
+                    "owner": owner,
+                    "cuando": int(time.time()),
+                })
             except Exception:
                 return self._send_json({"error": "disco"}, status=500)
             return self._send_json({"ok": True})
