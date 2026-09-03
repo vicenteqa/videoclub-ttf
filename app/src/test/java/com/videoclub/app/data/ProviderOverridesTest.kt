@@ -163,6 +163,50 @@ class ProviderOverridesTest {
         assertThat(ProviderOverrides.parse(overrides.encode())!!.tune).isNull()
     }
 
+    // --- a published release ----------------------------------------------------------------------
+
+    @Test
+    fun `a release is read with its version, url and hash`() {
+        val parsed = ProviderOverrides.parse(
+            """{"apk": {"version": 26090114, "url": "https://x/y.apk", "sha256": "abc"}}"""
+        )
+
+        assertThat(parsed!!.apk).isEqualTo(ApkRelease(26090114, "https://x/y.apk", "abc"))
+    }
+
+    @Test
+    fun `a release with no hash is still a release`() {
+        val parsed = ProviderOverrides.parse(
+            """{"apk": {"version": 26090114, "url": "https://x/y.apk"}}"""
+        )
+
+        assertThat(parsed!!.apk).isEqualTo(ApkRelease(26090114, "https://x/y.apk", ""))
+    }
+
+    /**
+     * With no version or no url there is nothing to compare against `BuildConfig.VERSION_CODE` or
+     * nowhere to fetch from, so the whole object is dropped rather than half-trusted.
+     */
+    @Test
+    fun `a release with no version or no url is not a release`() {
+        assertThat(ProviderOverrides.parse("""{"apk": {"url": "https://x/y.apk"}}""")!!.apk).isNull()
+        assertThat(ProviderOverrides.parse("""{"apk": {"version": 26090114}}""")!!.apk).isNull()
+        assertThat(ProviderOverrides.parse("""{"apk": {"version": 0, "url": "https://x/y.apk"}}""")!!.apk)
+            .isNull()
+        assertThat(ProviderOverrides.parse("""{"apk": {}}""")!!.apk).isNull()
+    }
+
+    /**
+     * A release is a fact about what is available right now, not a setting: storing it would mean a
+     * box starting tomorrow with no network finding yesterday's "download this" still in its cache.
+     */
+    @Test
+    fun `a release does not survive the cache`() {
+        val overrides = ProviderOverrides(apk = ApkRelease(26090114, "https://x/y.apk", "abc"))
+
+        assertThat(ProviderOverrides.parse(overrides.encode())!!.apk).isNull()
+    }
+
     @Test
     fun `channels round-trip through encode`() {
         val overrides = ProviderOverrides(

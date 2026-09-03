@@ -27,6 +27,13 @@ data class ProviderOverrides(
     val password: String? = null,
     val userAgent: String? = null,
     /**
+     * What the panel calls this household, for a person to read — never the `id` its URL, its
+     * Gradle flavour and its `local.properties` key are all built from, which stays fixed for life
+     * on purpose. A rename in the panel reaches an already-installed box on its next poll, no
+     * rebuild or living-room visit required — see [ProviderConfig.houseName].
+     */
+    val houseName: String? = null,
+    /**
      * Where to report what is being watched, and with which credential.
      *
      * The panel sets both when it creates the household. Without both, the app reports nothing: the
@@ -63,27 +70,36 @@ data class ProviderOverrides(
      * It is not stored in [ProviderConfig] and is compared against nothing: it is a dated errand,
      * not a setting, and what decides whether it has already been obeyed is [ChannelStore], not this.
      */
-    val tune: TuneOrder? = null
+    val tune: TuneOrder? = null,
+    /**
+     * A release the panel has published, or null. See [ApkRelease].
+     *
+     * Like [tune] and unlike everything above it, this is not stored in [ProviderConfig] and is not
+     * written back by [encode]: it is a fact about what is available right now, not a setting that
+     * should survive to the next launch with no network.
+     */
+    val apk: ApkRelease? = null
 ) {
 
     val isEmpty: Boolean
         get() = baseUrl == null && username == null && password == null &&
-            userAgent == null && profiles == null &&
+            userAgent == null && houseName == null && profiles == null &&
             reportUrl == null && reportToken == null && simple == null &&
-            extraChannels == null && tune == null
+            extraChannels == null && tune == null && apk == null
 
     /**
      * What gets written to disk for the next launch.
      *
-     * [tune] is deliberately left out: an errand belongs to now, and storing it would mean a box
-     * starting tomorrow with no network finding last night's order in its cache. An errand existing
-     * only while the document says so is what prevents that.
+     * [tune] and [apk] are deliberately left out: both are facts about right now rather than
+     * settings, and storing either would mean a box starting tomorrow with no network finding
+     * yesterday's errand — or yesterday's "download this" — still in its cache.
      */
     fun encode(): String = JSONObject().apply {
         baseUrl?.let { put(KEY_URL, it) }
         username?.let { put(KEY_USERNAME, it) }
         password?.let { put(KEY_PASSWORD, it) }
         userAgent?.let { put(KEY_USER_AGENT, it) }
+        houseName?.let { put(KEY_HOUSE_NAME, it) }
         reportUrl?.let { put(KEY_REPORT_URL, it) }
         reportToken?.let { put(KEY_REPORT_TOKEN, it) }
         nextProfileId?.let { put(KEY_NEXT_PROFILE_ID, it) }
@@ -118,6 +134,7 @@ data class ProviderOverrides(
         const val KEY_USERNAME = "username"
         const val KEY_PASSWORD = "password"
         const val KEY_USER_AGENT = "userAgent"
+        const val KEY_HOUSE_NAME = "casa"
         const val KEY_REPORT_URL = "reportUrl"
         const val KEY_REPORT_TOKEN = "reportToken"
         const val KEY_PROFILES = "perfiles"
@@ -134,6 +151,10 @@ data class ProviderOverrides(
         const val KEY_TUNE = "poner"
         const val KEY_TUNE_CHANNEL = "canal"
         const val KEY_TUNE_AT = "cuando"
+        const val KEY_APK = "apk"
+        const val KEY_APK_VERSION = "version"
+        const val KEY_APK_URL = "url"
+        const val KEY_APK_SHA256 = "sha256"
 
         val NONE = ProviderOverrides()
 
@@ -156,6 +177,7 @@ data class ProviderOverrides(
                 username = json.string(KEY_USERNAME),
                 password = json.string(KEY_PASSWORD),
                 userAgent = json.string(KEY_USER_AGENT),
+                houseName = json.string(KEY_HOUSE_NAME),
                 reportUrl = json.string(KEY_REPORT_URL),
                 reportToken = json.string(KEY_REPORT_TOKEN),
                 profiles = json.people(),
@@ -170,7 +192,29 @@ data class ProviderOverrides(
                     null
                 },
                 extraChannels = json.channels(),
-                tune = json.tuneOrder()
+                tune = json.tuneOrder(),
+                apk = json.apkRelease()
+            )
+        }
+
+        /**
+         * The published release, or null when the document carries none that can be acted on.
+         *
+         * `version` and `url` are both required: a release with no address to fetch from is not a
+         * release, and one with no version is one this app could never safely compare against
+         * `BuildConfig.VERSION_CODE`. `sha256` is optional only in the sense that its absence is not
+         * fatal to parsing — [Updater] decides separately whether to trust a release with no hash to
+         * check a download against.
+         */
+        private fun JSONObject.apkRelease(): ApkRelease? {
+            val row = optJSONObject(KEY_APK) ?: return null
+            val version = row.optInt(KEY_APK_VERSION, -1)
+            val url = row.optString(KEY_APK_URL).trim()
+            if (version <= 0 || url.isEmpty()) return null
+            return ApkRelease(
+                version = version,
+                url = url,
+                sha256 = row.optString(KEY_APK_SHA256).trim()
             )
         }
 
@@ -262,6 +306,7 @@ fun ProviderConfig.mergedWith(overrides: ProviderOverrides): ProviderConfig = co
     username = overrides.username ?: username,
     password = overrides.password ?: password,
     userAgent = overrides.userAgent ?: userAgent,
+    houseName = overrides.houseName ?: houseName,
     reportUrl = overrides.reportUrl ?: reportUrl,
     reportToken = overrides.reportToken ?: reportToken,
     simple = overrides.simple ?: simple,

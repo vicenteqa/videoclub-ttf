@@ -24,6 +24,14 @@ data class ProviderConfig(
     val reportUrl: String = "",
     val reportToken: String = "",
     /**
+     * What the panel calls this household, for showing to a person — see [ChannelList]'s
+     * `AccountFooter`. Distinct from `BuildConfig.FLAVOR`, which is a fixed identifier a build was
+     * made with and never what to show anybody: this arrives from the hosted document, exactly like
+     * everything else here, so renaming a household in the panel needs no rebuild to take effect.
+     * Blank until a document carrying it has been read.
+     */
+    val houseName: String = "",
+    /**
      * Whether this household is live television only: no video shop, no tabs, no profile picker.
      * The panel sets it; its default (`false`) is the full video shop as always.
      */
@@ -68,6 +76,7 @@ data class ProviderConfig(
         username = username.trim(),
         password = password.trim(),
         userAgent = userAgent.trim(),
+        houseName = houseName.trim(),
         reportUrl = reportUrl.trim(),
         reportToken = reportToken.trim(),
         simple = simple,
