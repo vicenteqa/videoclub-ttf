@@ -321,15 +321,24 @@ class CatalogStore(context: Context) {
      * `Blade Runner` before `Kill Bill: la venganza de la novia de Blade`. After that it is by
      * rating, because with 33,000 works the second page is never read.
      */
+    /**
+     * Every word typed has to appear somewhere in the name, in any order — not the phrase typed,
+     * whole, appearing somewhere. `search_name LIKE '%barcelona rayo%'` never matched "FC Barcelona
+     * **VS** Rayo Vallecano": the query and the title agree on every word, just not on which words
+     * sit next to which. One `LIKE` per word, all of them required, is what a person means by typing
+     * a few words of a title from memory.
+     */
     fun search(query: String, limit: Int, shelves: Shelves = Shelves.Everything): List<Title> {
         val folded = TitleNaming.fold(query)
         if (folded.isEmpty()) return emptyList()
+        val words = folded.split(' ').filter { it.isNotEmpty() }
         val filter = shelves.clauses()
+        val wordClauses = words.joinToString(" AND ") { "t.search_name LIKE ?" }
         return query(
-            "$TITLE_SELECT WHERE t.search_name LIKE ?" + filter.sql.prefixedWith(" AND ") +
+            "$TITLE_SELECT WHERE ($wordClauses)" + filter.sql.prefixedWith(" AND ") +
                 " ORDER BY CASE WHEN t.search_name LIKE ? THEN 0 ELSE 1 END, " +
                 "t.rating IS NULL, t.rating DESC, t.added DESC LIMIT ?",
-            (listOf("%$folded%") + filter.args + "$folded%" + limit.toString()).toTypedArray()
+            (words.map { "%$it%" } + filter.args + "$folded%" + limit.toString()).toTypedArray()
         )
     }
 
