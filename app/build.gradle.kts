@@ -51,13 +51,19 @@ fun flavourOf(casa: String): String = casa
     .joinToString("")
 
 /**
- * La marca de esta compilación, `AAMMDDHH`, que es a la vez el `versionCode`.
+ * La marca de esta compilación, `AAMMDDHHm`, que es a la vez el `versionCode`.
  *
- * Cabe de sobra en el entero con signo que Android exige (`26090114` contra un tope de 2.100 millones)
- * y crece con el tiempo, que es lo único que el sistema mira para decidir si una actualización es
- * más nueva que lo instalado.
+ * Cabe de sobra en el entero con signo que Android exige (`260902146` contra un tope de 2.100
+ * millones) y crece con el tiempo, que es lo único que el sistema mira para decidir si una
+ * actualización es más nueva que lo instalado.
+ *
+ * El último dígito es el minuto de esa hora dividido entre 6 (0-9): suficiente para que dos
+ * compilaciones seguidas durante una sesión de pruebas no choquen, sin tocar el resto del formato
+ * que ya se lee a simple vista en el panel y en los logs. Meter el minuto entero (`yyMMddHHmm`, diez
+ * dígitos) se pasa del tope en cuanto el año es "22" o mayor.
  */
-val buildStamp: String = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyMMddHH"))
+val now = LocalDateTime.now()
+val buildStamp: String = now.format(DateTimeFormatter.ofPattern("yyMMddHH")) + (now.minute / 6)
 
 /** El descodificador FFmpeg compilado aparte, comprobado aquí para que el fallo se lea. */
 val ffmpegDecoder: File = file("libs/media3-decoder-ffmpeg.aar").also {
@@ -79,14 +85,15 @@ android {
         // Same floor as the sibling projects, so the same Gradle cache and the same tooling apply.
         minSdk = 25
         targetSdk = 36
-        // Sube solo, a partir de la fecha de compilación: `AAMMDDHH` como número. Android sólo acepta
-        // una actualización cuyo `versionCode` sea mayor que el instalado, así que dejarlo clavado en
-        // 1 —como estaba— convierte cada build en una que ningún televisor querrá instalar.
+        // Sube solo, a partir de la fecha de compilación: `AAMMDDHHm` como número. Android sólo
+        // acepta una actualización cuyo `versionCode` sea mayor que el instalado, así que dejarlo
+        // clavado en 1 —como estaba— convierte cada build en una que ningún televisor querrá
+        // instalar.
         //
         // De la fecha y no de un contador en un fichero: un contador hay que acordarse de subirlo, y
         // el día que se olvide el fallo no se ve al compilar, se ve semanas después en un aparato que
-        // no se actualiza. Y no de la hora exacta: dos builds seguidos dentro de la misma hora son
-        // el mismo intento, no dos versiones.
+        // no se actualiza. Y no del minuto exacto: dos builds seguidas con menos de 6 minutos entre
+        // sí son el mismo intento, no dos versiones.
         versionCode = buildStamp.toInt()
         versionName = "1.0.$buildStamp"
 

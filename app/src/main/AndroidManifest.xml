@@ -5,6 +5,14 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
+        Only meaningful once this app is device owner (see UpdateAdminReceiver): a device owner's
+        PackageInstaller session commits itself, with no confirmation dialog. Held by any app, this
+        permission alone still shows the normal "Install unknown apps" prompt — it does not open a
+        silent path on its own.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
         Neither is required: one APK runs on a phone, on a tablet and on a television. Marking
         leanback optional is what makes it installable on the phone; marking the touchscreen optional
         is what makes it installable on the television. Getting either wrong is an "incompatible
@@ -40,5 +48,40 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Made device owner once, in person, with `adb shell dpm set-device-owner`. See
+            UpdateAdminReceiver's KDoc and DEPLOYMENT.md — this app locks nothing and wipes nothing;
+            the receiver exists only so a device-owner session's PackageInstaller can confirm itself.
+        -->
+        <receiver
+            android:name=".UpdateAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            Only exercised on a device that is not owner (see Updater.installNow): the non-silent
+            install path hands the system installer a content:// URI rather than file://, which is
+            what an app across the app boundary is allowed to read from Android N onward.
+            exported="false" — nothing outside this app can query it — and grantUriPermissions is
+            what lets a single URI be handed out via FLAG_GRANT_READ_URI_PERMISSION without opening
+            the whole provider up.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

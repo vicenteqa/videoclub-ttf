@@ -78,6 +78,44 @@ reinstall, and the catalogue rebuilds itself. You lose the local cache and littl
 From then on every update is direct, and forever — **as long as you still have
 `keystore/videoclub-release.p12` and its password**.
 
+## Making a box update itself
+
+`./deploy.sh` needs this laptop, a Tailscale connection, and somebody to run a command — every
+time. A box made **device owner** does not: the panel publishes a release and the box fetches,
+verifies and installs it on its own, with the screen off, and nobody has to do anything at all. See
+`apk` in [server/README.md](server/README.md) for the mechanism and `Updater.kt` for why it can be
+silent at all.
+
+### One more in-person step, added to the visit above
+
+Device owner can only be granted on a device with **no accounts configured yet** — in practice, one
+freshly factory-reset. Do this as step 4½, right after uninstalling for the signature change and
+before signing back into anything:
+
+```bash
+adb -s <host>:5555 shell dpm set-device-owner com.videoclub.app/.UpdateAdminReceiver
+```
+
+There is no undoing this from software. The only way off is another factory reset, so this is worth
+doing deliberately and not as an afterthought — read `UpdateAdminReceiver`'s KDoc first; it locks
+nothing and wipes nothing, its only purpose is letting a `PackageInstaller` session confirm itself.
+
+### Publishing a release
+
+```bash
+./publish.sh --casa papa
+```
+
+builds that household's flavour, uploads it to the same secret directory that already serves its
+`provider.json`, and publishes it: one step, no separate button to press afterwards. The household's
+document is updated as soon as the script finishes — its next poll will see the new release — but
+nothing installs on its own from that alone: the device itself decides when, via the icon beside
+**TV** or, in simple mode, by holding OK over the channel list. That gesture is what stops a build
+which turns out to be broken from reaching more than one command typed here.
+
+Publish to one household, let it sit for a day, then the rest: Android will not let a box go back
+to an older `versionCode`, so staggering the rollout is the only rollback there is.
+
 ## When it fails
 
 **It will not connect.** In order: `tailscale status` to see whether the television is online; then

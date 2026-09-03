@@ -351,7 +351,8 @@ fun LiveScreen(
                     onOpenList = ::openList,
                     onConfirmSelection = ::confirmSelection,
                     onHold = ::startRefresh,
-                    onDismissRefreshResult = ::dismissRefreshResult
+                    onDismissRefreshResult = ::dismissRefreshResult,
+                    onHoldOverList = { container.checkForUpdate() }
                 )
             }
     ) {
@@ -426,7 +427,11 @@ fun LiveScreen(
                     layer = LiveLayer.None
                 },
                 modifier = Modifier.align(Alignment.CenterStart),
-                house = BuildConfig.FLAVOR,
+                // The panel's name for this household, not the fixed build identifier: see
+                // [ProviderConfig.houseName]. Falls back to the flavour only for a launch that has
+                // not yet read a document carrying it — an upgrade from before this existed, or the
+                // very first poll.
+                house = container.provider.houseName.ifBlank { BuildConfig.FLAVOR },
                 accountUser = container.provider.username
             )
         }
@@ -545,7 +550,11 @@ private fun handleLiveKey(
     onOpenList: () -> Unit,
     onConfirmSelection: () -> Unit,
     onHold: () -> Unit,
-    onDismissRefreshResult: () -> Unit
+    onDismissRefreshResult: () -> Unit,
+    /** Held OK over the channel list — where the account line sits, at its foot — asks the server
+     *  whether there is a release waiting, the D-pad equivalent of long-pressing `TV`. See
+     *  [Container.checkForUpdate]. */
+    onHoldOverList: () -> Unit
 ): Boolean {
     val isOk = event.key == Key.DirectionCenter || event.key == Key.Enter ||
         event.key == Key.NumPadEnter
@@ -567,10 +576,24 @@ private fun handleLiveKey(
 
     if (isOk) {
         // The first auto-repeat is the moment a press becomes a hold. Firing on that edge means the
-        // viewer gets their answer while the button is still down, rather than on release.
-        if (event.nativeKeyEvent.repeatCount == 1 && layer == LiveLayer.None) {
-            setOkHandledAsHold(true)
-            onHold()
+        // viewer gets their answer while the button is still down, rather than on release. Two
+        // layers, two meanings for the same gesture — they never coincide, so nothing to choose
+        // between: `None` is watching, `List` is browsing, and holding OK means something different
+        // in each.
+        if (event.nativeKeyEvent.repeatCount == 1) {
+            when (layer) {
+                LiveLayer.None -> {
+                    setOkHandledAsHold(true)
+                    onHold()
+                }
+
+                LiveLayer.List -> {
+                    setOkHandledAsHold(true)
+                    onHoldOverList()
+                }
+
+                LiveLayer.RefreshResult -> Unit
+            }
         }
         return true
     }

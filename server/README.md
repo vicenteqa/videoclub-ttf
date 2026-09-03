@@ -35,6 +35,7 @@ app starts, says «Error de credenciales» and goes no further. The smallest doc
 | `simple`            | `true` = live television only, no video shop                        |
 | `canales`           | channels the supplier does not carry; see below                     |
 | `poner`             | "tune to this channel": an errand with a date, not a setting        |
+| `apk`                | a published release, waiting to be fetched; see below               |
 
 The field names are Spanish because they are the wire format, read by every device already
 installed; renaming them would break all of them at once.
@@ -81,6 +82,41 @@ so that last night's order is not carried out when the television is switched on
 It only appears in the panel for households in simple mode, and only while their app is awake — see
 "Knowing whether an app is alive".
 
+### `apk`: the app updating itself
+
+```json
+"apk": {"version": 26090114, "url": "https://…/<segment>/videoclub-26090114.apk", "sha256": "…"}
+```
+
+Unlike `poner`, this is not an errand with a fuse: it stays offered until a newer one replaces it,
+because a box that has been off for a week should still find it waiting when it comes back.
+
+`Updater`, on the app's side, downloads it as soon as it is newer than the running build, and then
+waits for a person: installing kills the running process, and that must never happen without
+somebody having said so. Whether it can install *silently* once they have depends on one thing:
+whether that device has been made the phone's — sorry, the box's — **device owner**, a one-time,
+in-person step documented in DEPLOYMENT.md. On every other device — every household today — the
+confirmation is a deliberate gesture on the device itself: a small icon beside the **TV** tab for
+full-catalogue households, tapped to open "Instalar" / "Ahora no"; in simple mode, which has no tab
+strip, holding OK over the open channel list does the same thing. Either way the app never throws up
+a surprise install dialog on its own initiative — a release just sits there, downloaded and quietly
+waiting, until somebody notices the hint and acts on it.
+
+The URL points at the very same secret directory that already serves `provider.json` — nothing new
+is exposed by adding a second file next to the first. It gets there via `./publish.sh --casa <id>`,
+which builds that household's flavour, uploads the APK over SSH, and publishes it in the same step
+at `POST /liberar` — the household's document is updated as soon as the script finishes, no separate
+button to press in the panel afterwards. A broken build still cannot travel further than the one
+command that built it: publishing is still one household at a time, one command per household, and
+what stops a bad build from reaching a living room is the gesture on the device, not a queue in the
+panel.
+
+There is no going back once a release lands: Android refuses to install anything with a lower
+`versionCode` than what is already there. The safety net here is not technical, it is procedural —
+send one household, let it sit, then the rest — and the app reports its own running version back
+through `/informe` (a third kind of report, alongside "what is playing" and the channel list) so
+that a card in the panel says the truth without anyone having to go and look.
+
 ## The panel
 
     https://<host>/panel/
@@ -90,7 +126,9 @@ it was last used — and one dialog per household with four tabs:
 
 - **Cuenta**: server, user, password, User-Agent, and the **simple mode** checkbox. At the foot,
   what the supplier says: whether the account authenticates, when it expires, whether anyone is
-  watching.
+  watching — and, for Videoclub, which version is running and, if it differs from what has been
+  published, a note that the household has not caught up yet. There is no button here: the device
+  decides when. See `apk` above.
 - **Perfiles**: the people of the household. Disabled for simple households, which have no picker.
 - **Qué ve**: what that household has been watching. Fetched when the tab is opened and not before.
 - **Poner canal**: simple households only. See below.
@@ -200,6 +238,15 @@ The `py_compile` before installing is what stops six households' panel being lef
 error. If something goes wrong: `systemctl status simpletv-admin`,
 `journalctl -u simpletv-admin -n 50`.
 
+**The backups do not clean themselves up.** Each deploy leaves one more `.bak-<fecha>` next to the
+program, and nothing ever removes an old one — over enough small changes that adds up to nothing
+that matters for the server, but to no reason to let it run forever either. Trim to the twenty most
+recent after installing:
+
+```bash
+ssh <vps> "cd /opt/simpletv-admin && ls -t simpletv-admin.py.bak-* | tail -n +21 | xargs -r sudo rm --"
+```
+
 ### Adding someone who can log in
 
 ```bash
@@ -216,6 +263,12 @@ random segment and `autoindex off`.
 It is still a clear improvement on what it replaces. Credentials living in a file are rotated in ten
 seconds; credentials compiled into an APK sitting in someone else's living room are never rotated at
 all.
+
+**Since `apk`, this VPS controls code, not only credentials.** It already decided which account and
+which channels a television has; now it can decide what software runs on it, on any device made its
+owner. That is accepted rather than incidental — the VPS is yours and so are the televisions — but it
+is worth saying plainly, because it is a materially different amount of trust from everything above
+it on this page.
 
 ## When something does not add up
 

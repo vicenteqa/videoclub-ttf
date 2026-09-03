@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Matches Updater.updatesDir = File(appContext.filesDir, "updates") exactly: a files-path is
+         rooted at Context.getFilesDir(), so path="updates/" is that same directory, nothing wider. -->
+    <files-path name="updates" path="updates/" />
+</paths>

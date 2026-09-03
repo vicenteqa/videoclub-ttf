@@ -142,9 +142,14 @@ fun VideoclubRoot(
 
     OverlayMenu(
         menu = posterMenu ?: forgetMenu,
-        onDismiss = { if (posterMenu != null) viewModel.closeMenu() else viewModel.cancelForget() }
+        onDismiss = {
+            if (posterMenu != null) viewModel.closeMenu() else viewModel.cancelForget()
+        }
     ) {
-        VideoclubScreen(container, viewModel, screen, viewer, people, inset, modifier)
+        VideoclubScreen(
+            container, viewModel, screen, viewer, people, inset, modifier,
+            onCheckUpdate = viewModel::checkForUpdate
+        )
     }
 }
 
@@ -162,7 +167,8 @@ private fun VideoclubScreen(
     viewer: Profile,
     people: List<Profile>,
     inset: Modifier,
-    modifier: Modifier
+    modifier: Modifier,
+    onCheckUpdate: () -> Unit
 ) {
     when (val current = screen) {
         // The three screens that keep the strip: browsing, a shelf, and a film. Whatever is under
@@ -181,6 +187,7 @@ private fun VideoclubScreen(
                 onSelectTab = viewModel::selectTab,
                 onSwitchViewer = viewModel::switchViewer,
                 onRetry = viewModel::retrySync,
+                onCheckUpdate = onCheckUpdate,
                 autoFocus = viewModel.deviceProfile == DeviceProfile.Tv && current is Screen.Browse
             )
 

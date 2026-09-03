@@ -508,6 +508,12 @@ fun TabBar(
     onSelect: (Tab) -> Unit,
     modifier: Modifier = Modifier,
     autoFocus: Boolean = false,
+    /**
+     * A long press on a chip. Every entry ignores it except `TV`, which asks the server whether
+     * there is a release waiting — see [Container.checkForUpdate]. Routed here rather than baked
+     * into `TabChip` itself, so this file stays ignorant of which destination that is.
+     */
+    onLongClick: (Tab) -> Unit = {},
     /** Pinned to the right, past the symbols. The profile chip lives here. */
     trailing: @Composable () -> Unit = {}
 ) {
@@ -544,6 +550,7 @@ fun TabBar(
                     entry = entry,
                     selected = entry.tab == selected,
                     onClick = { onSelect(entry.tab) },
+                    onLongClick = { onLongClick(entry.tab) },
                     modifier = chipModifier(entry)
                 )
             }
@@ -553,6 +560,7 @@ fun TabBar(
                 entry = entry,
                 selected = entry.tab == selected,
                 onClick = { onSelect(entry.tab) },
+                onLongClick = { onLongClick(entry.tab) },
                 modifier = chipModifier(entry)
             )
         }
@@ -615,12 +623,14 @@ private fun TabChip(
     entry: TabEntry,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val skin = LocalSkin.current
     Pill(
         filled = selected,
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier,
         enabled = entry.enabled,
         horizontalPadding = if (entry.icon != null) 12.dp else 16.dp
@@ -649,6 +659,7 @@ private fun TabChip(
 private fun Pill(
     filled: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     horizontalPadding: Dp = 16.dp,
@@ -677,7 +688,7 @@ private fun Pill(
                     else -> Color.Transparent
                 }
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = horizontalPadding, vertical = 8.dp)
     ) {
         content(foreground)

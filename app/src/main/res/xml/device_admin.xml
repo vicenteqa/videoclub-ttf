@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    No policies at all: this app becomes device owner for exactly one reason — a device owner's
+    PackageInstaller can confirm its own install session, which is what lets a release land with
+    nobody in the room to tap "Install". Nothing here locks the device, restricts an account or
+    manages anything else a real MDM would; an empty policy set is the honest declaration of that.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies />
+</device-admin>

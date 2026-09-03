@@ -65,6 +65,12 @@ class Container(context: Context) {
         .retryOnConnectionFailure(true)
         .build()
 
+    /**
+     * Downloads and installs a release the panel has published. See [Updater] for why that can be
+     * silent at all, and [checkForUpdate] for the one gesture-driven path the UI layer calls into.
+     */
+    val updater = Updater(appContext, http, scope).apply { start() }
+
     /** Read once. Decides whether the UI is built for a D-pad or for a finger. */
     val deviceProfile: DeviceProfile = detectDeviceProfile(appContext)
 
@@ -265,6 +271,11 @@ class Container(context: Context) {
                 // The first thing looked at in the freshly fetched document: it is the part that is
                 // asked to arrive quickly, and it does not depend on anything else having changed.
                 considerTuneOrder(nowMillis)
+                // Same reasoning, and the same reason it lives outside the `!moved` check below: a
+                // published release does not move the account either, and `Updater.consider` already
+                // costs nothing on the polls where there is nothing new to do.
+                updater.consider(settings.apkRelease, _screenOn.value)
+                reporter.version(BuildConfig.VERSION_CODE, updater.isDeviceOwner())
                 // De vuelta al primer plano: puede haberse visto algo en otro aparato mientras
                 // meanwhile, and that counts even if the household's document has not moved. Not in
                 // a simple household: there is no "Continue watching" there to bring up to date.
@@ -283,6 +294,23 @@ class Container(context: Context) {
             } finally {
                 checkInFlight = false
             }
+        }
+    }
+
+    /**
+     * A person asked, directly — long-press on `TV`, or on the account line in the channel list —
+     * rather than waiting for the next poll. Fetches the document fresh and hands whatever it says
+     * about a release straight to [Updater.checkNow]: newer than this build, and it goes straight to
+     * Android's own install prompt; otherwise nothing happens, silently — nobody who did not ask
+     * should see a "you are already up to date" message either.
+     *
+     * Deliberately lighter than [adoptHostedConfig]: no catalogue refresh, no tune order, nothing
+     * that a person standing there pressing a button is not waiting on.
+     */
+    fun checkForUpdate() {
+        scope.launch {
+            fetchAndApply()
+            updater.checkNow(settings.apkRelease)
         }
     }
 

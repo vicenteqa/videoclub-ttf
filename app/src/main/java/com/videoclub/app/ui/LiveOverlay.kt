@@ -138,7 +138,10 @@ internal fun ChannelList(
     skin: LiveSkin,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    /** Which household this APK belongs to and which account it is on. Both empty draws nothing. */
+    /**
+     * The panel's name for this household — see [ProviderConfig.houseName] — and which account it
+     * is on. Both empty draws nothing.
+     */
     house: String = "",
     accountUser: String = ""
 ) {
@@ -214,6 +217,10 @@ internal fun ChannelList(
  * on it. Pinned below the list rather than being its last row — somebody reads it out loud with the
  * television misbehaving, and asking them to scroll first is one more instruction — and it exists
  * only while the list is open, so it never covers the picture.
+ *
+ * Holding OK while the list is open — the D-pad equivalent of a long press, over exactly this line
+ * — asks the server whether there is a release waiting; see [Container.checkForUpdate]. Nothing
+ * about that shows up here: it either lands on Android's own install prompt or does nothing.
  */
 @Composable
 private fun AccountFooter(house: String, user: String, skin: LiveSkin) {

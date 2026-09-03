@@ -54,6 +54,20 @@ data class Feed(
 data class TuneOrder(val label: String, val issuedAt: Long)
 
 /**
+ * A release the panel has published, waiting to be picked up.
+ *
+ * Compared against `BuildConfig.VERSION_CODE`, never stored and never mirrored into
+ * [ProviderConfig]: it is a fact about what is available, not a setting, and treating it as one
+ * would make [ProviderSettings.apply] report the account as moved on every publish — which would
+ * rebuild the whole catalogue for no reason connected to the account at all.
+ *
+ * [sha256] guards against installing a download that was cut short. It is not the security
+ * boundary — Android's own signature check is, since every release is signed with the same key —
+ * it is only a cheap way to notice a truncated file before handing it to the installer.
+ */
+data class ApkRelease(val version: Int, val url: String, val sha256: String)
+
+/**
  * A channel the supplier does not carry, added by the household: usually a local station.
  *
  * It lives in the hosted document rather than compiled into the APK, for the same reason as

@@ -376,6 +376,9 @@ class MainViewModel(private val container: Container) : ViewModel() {
 
     fun retrySync() = catalog.refresh(System.currentTimeMillis())
 
+    /** A long press on `TV`: see [Container.checkForUpdate]. */
+    fun checkForUpdate() = container.checkForUpdate()
+
     /**
      * Re-reads whatever the browsing screen is showing, and only ever once at a time.
      *

@@ -73,6 +73,8 @@ fun TopStrip(
     onSelectTab: (Tab) -> Unit,
     onSwitchViewer: () -> Unit,
     onRetry: () -> Unit,
+    /** A long press on `TV`: see [Container.checkForUpdate]. */
+    onCheckUpdate: () -> Unit,
     autoFocus: Boolean = false
 ) {
     // While the videoclub is being built, every chip that leads into the catalogue leads to the
@@ -122,6 +124,7 @@ fun TopStrip(
             selected = tab,
             onSelect = onSelectTab,
             autoFocus = autoFocus,
+            onLongClick = { pressed -> if (pressed == Tab.Live) onCheckUpdate() },
             trailing = {
                 ProfileChip(
                     profile = viewer,
