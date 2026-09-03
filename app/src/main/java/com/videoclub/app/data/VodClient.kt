@@ -1,12 +1,14 @@
 package com.videoclub.app.data
 
 import android.util.Base64
+import android.util.Log
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 
 /**
@@ -47,22 +49,86 @@ class VodClient(
 
     /**
      * The shared catalogue mirror one household's account feeds every two hours — see
-     * [ProviderConfig.catalogMirrorUrl] — or null when it cannot be used for any reason: no URL yet,
-     * the request failed, the body will not parse, or it is more than a day old. That last one
-     * matters as much as the others: a stuck VPS job must not quietly freeze the catalogue for every
-     * household reading it, so past a day this is treated exactly like the mirror not existing —
-     * [CatalogSync] falls back to asking the supplier directly, same as it always did.
+     * [ProviderConfig.catalogMirrorUrl] — asked conditionally so an hourly check that finds nothing
+     * new costs one small exchange of headers, not a 20-odd MB download parsed for nothing.
+     *
+     * [etag] is whatever [MirrorFetch.Updated.etag] answered last time, or null the first time this
+     * is ever asked. Sent as `If-None-Match`; a server that still has the same file answers `304` and
+     * no body at all, which is [MirrorFetch.Unchanged].
      */
-    suspend fun catalogMirror(): CatalogMirror? = withContext(Dispatchers.IO) {
+    suspend fun catalogMirror(etag: String?): MirrorFetch = withContext(Dispatchers.IO) {
         val url = config.catalogMirrorUrl
-        if (url.isEmpty()) return@withContext null
+        if (url.isEmpty()) {
+            Log.i(TAG, "No catalogue mirror URL yet")
+            return@withContext MirrorFetch.Unavailable
+        }
         runCatching {
-            val root = JSONObject(get(url))
-            val generatedAtSeconds = root.optLong("generado_en", 0L)
-            val ageSeconds = System.currentTimeMillis() / 1000 - generatedAtSeconds
-            if (generatedAtSeconds <= 0L || ageSeconds > MIRROR_MAX_AGE_SECONDS) null
-            else CatalogMirror(root)
-        }.getOrNull()
+            val request = Request.Builder().url(url).header("User-Agent", config.userAgent).apply {
+                if (etag != null) header("If-None-Match", etag)
+            }.build()
+            http.newCall(request).execute().use { response ->
+                when {
+                    response.code == 304 -> MirrorFetch.Unchanged
+                    !response.isSuccessful -> {
+                        Log.w(TAG, "Mirror request refused (${response.code})")
+                        MirrorFetch.Unavailable
+                    }
+                    else -> parseMirror(response)
+                }
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Mirror request failed (${error.javaClass.simpleName}: ${error.message})")
+        }.getOrDefault(MirrorFetch.Unavailable)
+    }
+
+    /**
+     * Reads the mirror one line at a time — see `catalogo-maestro.py`, which writes one small JSON
+     * object per line rather than one hundred-odd MB document.
+     *
+     * The first version wrote a single document, and `response.body().string()` here tried to
+     * allocate that whole thing as one Java string — UTF-16, so roughly twice the file's own size —
+     * in one go. Measured directly on a phone: `OutOfMemoryError`, every time, silently swallowed by
+     * the `runCatching` this sits inside, so the mirror was never actually being used at all. No
+     * line here is bigger than one category's worth of listings — a few MB at most, the same size
+     * [CatalogJson] already parses one at a time from the supplier directly — so nothing in this
+     * function ever holds more than that in memory beyond the two maps it is filling in.
+     */
+    private fun parseMirror(response: Response): MirrorFetch {
+        val body = response.body ?: return MirrorFetch.Unavailable
+        var generatedAtSeconds = 0L
+        val categoriesByKind = mutableMapOf<Kind, MutableList<RemoteCategory>>()
+        val listingsByKey = mutableMapOf<String, String>()
+
+        body.charStream().forEachLine { line ->
+            if (line.isBlank()) return@forEachLine
+            val row = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
+            when (row.optString("tipo")) {
+                "meta" -> generatedAtSeconds = row.optLong("generado_en", 0L)
+                "categorias" -> {
+                    val kind = mirrorKind(row.optString("kind")) ?: return@forEachLine
+                    val items = row.optJSONArray("items")?.toString() ?: "[]"
+                    categoriesByKind.getOrPut(kind) { mutableListOf() } += CatalogJson.categories(items)
+                }
+                "listado" -> {
+                    val kind = mirrorKind(row.optString("kind")) ?: return@forEachLine
+                    val categoryId = row.optString("category_id")
+                    val items = row.optJSONArray("items")?.toString() ?: return@forEachLine
+                    listingsByKey[mirrorKey(kind, categoryId)] = items
+                }
+            }
+        }
+
+        val ageSeconds = System.currentTimeMillis() / 1000 - generatedAtSeconds
+        // A stuck VPS job must not quietly freeze the catalogue for every household reading it —
+        // past a day this is treated exactly like the mirror not existing, and the caller decides
+        // from there whether that is fine (an hourly top-up just skips) or worth falling back to
+        // the supplier for (the once-a-day refresh CatalogSync always did).
+        if (generatedAtSeconds <= 0L || ageSeconds > MIRROR_MAX_AGE_SECONDS) {
+            Log.w(TAG, "Mirror is too old or unreadable (generated_at=$generatedAtSeconds)")
+            return MirrorFetch.Unavailable
+        }
+        Log.i(TAG, "Mirror fresh, ${ageSeconds}s old, ${listingsByKey.size} categories")
+        return MirrorFetch.Updated(CatalogMirror(categoriesByKind, listingsByKey), response.header("ETag"))
     }
 
     /** Plot, cast, runtime and the codec report, none of which appear in a film listing. */
@@ -199,6 +265,7 @@ class VodClient(
     }
 
     private companion object {
+        const val TAG = "VodClient"
         const val LIVE_CONTAINER = "ts"
 
         /** What is on now and what is on next. An information strip has room for nothing else. */
@@ -210,25 +277,52 @@ class VodClient(
 }
 
 /**
+ * What asking the mirror came back with — see [VodClient.catalogMirror].
+ *
+ * Three answers rather than a nullable [CatalogMirror], because "nothing changed" and "could not
+ * be used" call for opposite responses from whoever asked: an hourly top-up treats [Unchanged] as
+ * success (there was nothing to do) and [Unavailable] as "try again next time, quietly", while the
+ * once-a-day refresh treats [Unavailable] as its cue to fall back to the supplier directly.
+ */
+sealed class MirrorFetch {
+    /** A fresh copy, and the marker to send back next time so the server can say "still this one". */
+    data class Updated(val mirror: CatalogMirror, val etag: String?) : MirrorFetch()
+
+    /** The server confirmed the [CatalogMirror] a caller already has is still the current one. */
+    data object Unchanged : MirrorFetch()
+
+    /** No URL yet, the request failed, the body would not parse, or it is more than a day old. */
+    data object Unavailable : MirrorFetch()
+}
+
+/** `"vod"`/`"series"` as `catalogo-maestro.py` writes them, or null for anything else. */
+private fun mirrorKind(raw: String): Kind? = when (raw) {
+    "vod" -> Kind.Movie
+    "series" -> Kind.Series
+    else -> null
+}
+
+private fun mirrorKey(kind: Kind, categoryId: String): String =
+    "${if (kind == Kind.Movie) "vod" else "series"}:$categoryId"
+
+/**
  * The categories and listings from `_catalogo/vod.json`, read back exactly as
  * `catalogo-maestro.py` wrote them — one call to the supplier's API, not nine hundred.
  *
- * Holds the parsed document rather than [Listing]/[RemoteCategory] rows: the categories array and
- * each category's listings array are handed to [CatalogJson] precisely as they arrived, the same
- * function that already reads them straight from the supplier, so nothing about how a listing is
- * parsed needs to know or care where the bytes came from.
+ * Holds a [RemoteCategory] list per kind and one raw JSON array of listings per category — already
+ * parsed enough to know what is there, but each category's own listings stay text until
+ * [listings] is actually asked for that one, and [CatalogJson] reads it exactly as it would read
+ * the supplier's own response to `get_vod_streams?category_id=…`. Never the whole mirror as one
+ * parsed tree: see [VodClient.parseMirror] for why that is the one thing this must not do.
  */
-class CatalogMirror internal constructor(private val root: JSONObject) {
+class CatalogMirror internal constructor(
+    private val categoriesByKind: Map<Kind, List<RemoteCategory>>,
+    private val listingsByKey: Map<String, String>
+) {
 
-    fun categories(kind: Kind): List<RemoteCategory> =
-        CatalogJson.categories(block(kind)?.optJSONArray("categorias")?.toString() ?: "[]")
+    fun categories(kind: Kind): List<RemoteCategory> = categoriesByKind[kind].orEmpty()
 
     /** Null when this category never made it into the mirror — a household falls back for it alone. */
-    fun listings(kind: Kind, categoryId: String): List<Listing>? {
-        val array = block(kind)?.optJSONObject("streams")?.optJSONArray(categoryId) ?: return null
-        return CatalogJson.listings(kind, array.toString())
-    }
-
-    private fun block(kind: Kind): JSONObject? =
-        root.optJSONObject(if (kind == Kind.Movie) "vod" else "series")
+    fun listings(kind: Kind, categoryId: String): List<Listing>? =
+        listingsByKey[mirrorKey(kind, categoryId)]?.let { CatalogJson.listings(kind, it) }
 }

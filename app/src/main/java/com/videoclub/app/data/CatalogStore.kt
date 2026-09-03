@@ -649,6 +649,38 @@ class CatalogStore(context: Context) {
         syncedAtMillis = nowMillis
     }
 
+    /**
+     * The mirror's own version marker from the last successful download — see
+     * [VodClient.catalogMirror] — or null before any mirror has ever answered with one.
+     *
+     * In [TABLE_META] beside [syncedAtMillis] and for the same reason: a migration that rebuilds the
+     * catalogue must take this with it. Without that, the next check could read back a `304 Not
+     * Modified` for a mirror that has long since moved on, and leave a freshly emptied table
+     * believing it is already current.
+     */
+    var catalogMirrorEtag: String?
+        get() = helper.readableDatabase
+            .rawQuery("SELECT value FROM $TABLE_META WHERE key = ?", arrayOf(KEY_MIRROR_ETAG))
+            .use { if (it.moveToFirst()) it.getString(0) else null }
+        private set(value) {
+            if (value == null) {
+                helper.writableDatabase.delete(TABLE_META, "key = ?", arrayOf(KEY_MIRROR_ETAG))
+            } else {
+                helper.writableDatabase.replace(
+                    TABLE_META,
+                    null,
+                    ContentValues().apply {
+                        put("key", KEY_MIRROR_ETAG)
+                        put("value", value)
+                    }
+                )
+            }
+        }
+
+    fun markMirrorEtag(etag: String?) {
+        catalogMirrorEtag = etag
+    }
+
     // ---------------------------------------------------------------------------------- helpers
 
     /** One `WHERE` fragment and the arguments that go with it, in the order the fragment names them. */
@@ -964,6 +996,8 @@ class CatalogStore(context: Context) {
         const val PREFS_NAME = "videoclub"
         /** A row of [TABLE_META], not a preference: see [syncedAtMillis]. */
         const val KEY_SYNCED_AT = "synced_at"
+        /** A row of [TABLE_META], not a preference: see [catalogMirrorEtag]. */
+        const val KEY_MIRROR_ETAG = "mirror_etag"
         const val KEY_SYNC_COUNTER = "sync_counter"
         const val KEY_LAST_PROFILE = "last_profile"
 

@@ -235,13 +235,19 @@ class Container(context: Context) {
      * battery learning about errands nobody is going to see. It is a `while` rather than a system
      * scheduler because it does not have to outlive the app — when the app is gone, this is good
      * for nothing.
+     *
+     * Piggybacks the catalogue's own hourly top-up on the same tick — see
+     * [CatalogRepository.checkMirrorHourly]. Not a scheduler of its own for the same reason as the
+     * document itself: this already runs often enough, and only while it would be seen.
      */
     fun startPolling() {
         if (pollJob?.isActive == true) return
         pollJob = scope.launch {
             while (true) {
                 delay(FOREGROUND_POLL_MS)
-                adoptHostedConfig(System.currentTimeMillis())
+                val nowMillis = System.currentTimeMillis()
+                adoptHostedConfig(nowMillis)
+                if (!provider.simple) catalog.checkMirrorHourly(nowMillis)
             }
         }
     }

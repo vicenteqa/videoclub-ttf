@@ -220,6 +220,39 @@ class CatalogRepository(
         }
     }
 
+    /**
+     * The lightweight hourly top-up, tied to the foreground poll — see `Container.startPolling` —
+     * rather than the once-a-day [refreshIfStale]. Asks the mirror conditionally and only touches
+     * anything when it actually has something new; the overwhelming majority of calls find nothing
+     * has moved since the last check and cost one small exchange of headers.
+     *
+     * Deliberately not [refresh]: that one drives "Preparando el videoclub…" and "se descargó a
+     * medias", which have no business appearing for a check nobody asked for. And it never falls
+     * back to the supplier directly — see [CatalogSync.run]'s `mirrorOnly` — so a household whose
+     * mirror is briefly unreachable pays for one quiet failed request an hour, not nine hundred.
+     */
+    fun checkMirrorHourly(nowMillis: Long) {
+        if (syncJob?.isActive == true) return
+        val age = nowMillis - store.syncedAtMillis
+        if (store.syncedAtMillis != 0L && age < MIRROR_CHECK_INTERVAL_MILLIS) return
+        syncJob = scope.launch {
+            runCatching {
+                sync.run(nowMillis, mirrorOnly = true) {
+                    shelvingCache.clear()
+                    agreementCache.clear()
+                    _revision.update { it + 1 }
+                }
+            }.onSuccess { complete ->
+                if (complete) _revision.update { it + 1 }
+                // A gap here is nothing to alarm anybody about — unlike refresh()'s "se descargó a
+                // medias", which answers a person who asked. Nobody asked for this one; the next
+                // check, an hour or a day away, tries again on its own.
+            }.onFailure { error ->
+                Log.w(TAG, "Hourly catalogue check failed", error)
+            }
+        }
+    }
+
     fun acknowledgeSync() {
         if (_syncState.value !is SyncState.Running) _syncState.value = SyncState.Idle
     }
@@ -597,6 +630,9 @@ class CatalogRepository(
     private companion object {
         const val TAG = "CatalogRepository"
         const val MAX_AGE_MILLIS = 24L * 60 * 60 * 1000
+
+        /** See [checkMirrorHourly]. */
+        const val MIRROR_CHECK_INTERVAL_MILLIS = 60L * 60 * 1000
         const val ROW_TITLES = 24
         const val SEARCH_RESULTS = 60
 

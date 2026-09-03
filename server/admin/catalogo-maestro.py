@@ -178,22 +178,31 @@ def main():
 
     log(f"Usando la cuenta de «{casa['nombre']}»")
 
-    salida = {"generado_en": int(time.time())}
-    algo_incompleto = False
-    for nombre, cat_action, list_action in KINDS:
-        log(f"Descargando {nombre}…")
-        bloque, incompleto = build_kind(
-            base_url, username, password, user_agent, cat_action, list_action
-        )
-        salida[nombre] = bloque
-        algo_incompleto = algo_incompleto or incompleto
-        log(f"{nombre}: {len(bloque['categorias'])} categorías, {len(bloque['streams'])} completas")
-
     os.makedirs(OUT_DIR, exist_ok=True)
     handle, scratch = tempfile.mkstemp(dir=OUT_DIR, prefix=".vod-")
+    algo_incompleto = False
     try:
+        # NDJSON — una línea, un objeto JSON pequeño — y no un único documento de cien y pico MB.
+        # La primera versión escribía eso, y VodClient.kt cargándolo entero con
+        # `response.body().string()` se encontró intentando reservar un String de Java de ~200 MB
+        # (UTF-16) de una sentada: OutOfMemoryError en un aparato real, siempre, en silencio. Aquí
+        # ninguna línea pesa más que lo que ya pesa una categoría sola pedida al proveedor en
+        # directo — la app parsea esto exactamente igual, línea a línea.
         with os.fdopen(handle, "w", encoding="utf-8") as f:
-            json.dump(salida, f, ensure_ascii=False, separators=(",", ":"))
+            escribir = lambda obj: f.write(json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n")
+            escribir({"tipo": "meta", "generado_en": int(time.time())})
+            for nombre, cat_action, list_action in KINDS:
+                log(f"Descargando {nombre}…")
+                bloque, incompleto = build_kind(
+                    base_url, username, password, user_agent, cat_action, list_action
+                )
+                algo_incompleto = algo_incompleto or incompleto
+                escribir({"tipo": "categorias", "kind": nombre, "items": bloque["categorias"]})
+                for category_id, items in bloque["streams"].items():
+                    escribir({
+                        "tipo": "listado", "kind": nombre, "category_id": category_id, "items": items
+                    })
+                log(f"{nombre}: {len(bloque['categorias'])} categorías, {len(bloque['streams'])} completas")
         os.chmod(scratch, 0o644)
         os.replace(scratch, OUT_FILE)
     except Exception:

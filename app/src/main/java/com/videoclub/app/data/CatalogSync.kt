@@ -50,10 +50,32 @@ class CatalogSync(
     private val store: CatalogStore
 ) {
 
-    suspend fun run(nowMillis: Long, onProgress: (SyncProgress) -> Unit): Boolean =
+    /**
+     * @param mirrorOnly True for the lightweight hourly top-up — see [CatalogRepository.checkMirrorHourly]
+     *   — which must never fall back to asking the supplier directly just because an hour happened
+     *   to pass: with nothing new from the mirror, it does nothing at all, quietly, and leaves the
+     *   supplier alone until the next once-a-day refresh. `false` is today's behaviour, unchanged:
+     *   the mirror first, the supplier for whatever it does not have.
+     */
+    suspend fun run(
+        nowMillis: Long,
+        mirrorOnly: Boolean = false,
+        onProgress: (SyncProgress) -> Unit
+    ): Boolean =
         withContext(Dispatchers.IO) {
+            // Asked before anything else opens: a mirror that confirms nothing has moved, or that
+            // has nothing to offer an hourly check, means the rest of this never has to run at all.
+            val mirrorFetch = client.catalogMirror(store.catalogMirrorEtag)
+            if (mirrorFetch is MirrorFetch.Unchanged) {
+                // Recorded as a successful check all the same, so the next one waits its full
+                // interval instead of asking again on every foreground poll.
+                store.markSynced(nowMillis)
+                return@withContext true
+            }
+            val mirror = (mirrorFetch as? MirrorFetch.Updated)?.mirror
+            if (mirror == null && mirrorOnly) return@withContext true
+
             val session = store.beginSync(nowMillis)
-            val mirror = client.catalogMirror()
             var complete = true
             var done = 0
 
@@ -61,6 +83,7 @@ class CatalogSync(
                 val plan = Kind.entries.map { kind ->
                     val fromMirror = mirror?.categories(kind).orEmpty()
                     kind to fromMirror.ifEmpty {
+                        if (mirrorOnly) return@ifEmpty emptyList()
                         runCatching { client.categories(kind) }
                             .onFailure { complete = false }
                             .getOrDefault(emptyList())
@@ -79,7 +102,7 @@ class CatalogSync(
                     for (batch in ids.chunked(BATCH)) {
                         val fetched = coroutineScope {
                             batch.map { (category, id) ->
-                                async { Triple(category, id, fetch(kind, category, mirror)) }
+                                async { Triple(category, id, fetch(kind, category, mirror, mirrorOnly)) }
                             }.awaitAll()
                         }
                         if (fetched.any { it.third == null }) complete = false
@@ -103,6 +126,7 @@ class CatalogSync(
                 if (complete) {
                     session.sweep()
                     store.markSynced(nowMillis)
+                    (mirrorFetch as? MirrorFetch.Updated)?.etag?.let(store::markMirrorEtag)
                 } else {
                     session.close()
                     Log.w(TAG, "Sync finished with gaps; keeping every existing row")
@@ -122,8 +146,14 @@ class CatalogSync(
      * retry loop at all — it is either there or it is not, there is nothing to be gained asking the
      * VPS twice for the same static file.
      */
-    private suspend fun fetch(kind: Kind, category: RemoteCategory, mirror: CatalogMirror?): List<Listing>? {
+    private suspend fun fetch(
+        kind: Kind,
+        category: RemoteCategory,
+        mirror: CatalogMirror?,
+        mirrorOnly: Boolean
+    ): List<Listing>? {
         mirror?.listings(kind, category.remoteId)?.let { return it }
+        if (mirrorOnly) return null
         repeat(ATTEMPTS) { attempt ->
             runCatching { client.listings(kind, category.remoteId) }
                 .onSuccess { return it }
