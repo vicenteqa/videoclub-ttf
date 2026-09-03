@@ -52,6 +52,13 @@
 # casa.vicente.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
 # casa.papa.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
 
+# --- El VPS, para ./publish.sh ------------------------------------------------
+# Adónde subir un release por scp: el mismo directorio secreto que ya sirve el
+# provider.json de esa casa, así que no hace falta ningún puerto nuevo ni tocar
+# nginx. Ver server/README.md.
+#
+# vps.ssh=usuario@tu-vps.example.org
+
 # --- Los aparatos, para ./deploy.sh ------------------------------------------
 # El nombre de cada televisor en el tailnet. Se declara por casa y no se hereda:
 # heredarlo significa que un `--casa` despistado instala en el televisor de otra

@@ -143,9 +143,23 @@ fi
 if [[ "${1:-}" != "--no-build" ]]; then
     if [[ -n "$CASA" ]]; then
         note "Compilando release para la casa '$CASA'"
-        CAP="$(tr '[:lower:]' '[:upper:]' <<<"${CASA:0:1}")${CASA:1}"
+        # Mismo criterio que `flavourOf()` en app/build.gradle.kts y que publish.sh: un slug con
+        # guiones se convierte en un nombre de flavour de Gradle en camelCase, no en un slug con solo
+        # su primera letra en mayúscula — eso deja tareas que Gradle no reconoce en cuanto la casa
+        # tiene más de una palabra (p. ej. "david-hijo-ignasi").
+        FLAVOUR=""
+        IFS='-' read -ra PARTES <<< "$CASA"
+        for i in "${!PARTES[@]}"; do
+            parte="${PARTES[$i]}"
+            if [[ $i -eq 0 ]]; then
+                FLAVOUR="${FLAVOUR}${parte}"
+            else
+                FLAVOUR="${FLAVOUR}$(tr '[:lower:]' '[:upper:]' <<<"${parte:0:1}")${parte:1}"
+            fi
+        done
+        CAP="$(tr '[:lower:]' '[:upper:]' <<<"${FLAVOUR:0:1}")${FLAVOUR:1}"
         ./gradlew --quiet ":app:assemble${CAP}Release"
-        SRC="app/build/outputs/apk/$CASA/release/app-$CASA-release.apk"
+        SRC="app/build/outputs/apk/$FLAVOUR/release/app-$FLAVOUR-release.apk"
     else
         note "Compilando release"
         ./gradlew --quiet :app:assembleRelease
