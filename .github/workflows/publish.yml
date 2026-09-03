@@ -1,0 +1,77 @@
+name: Publicar Videoclub
+
+# Un push a main es "esto está listo para salir": compila el release de cada casa y lo publica en
+# el VPS exactamente como lo haría ./publish.sh a mano, casa por casa. paths-ignore para que un
+# commit que sólo toca prosa (README, DEPLOYMENT) no dispare seis builds por nada.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: SDK de Android
+        uses: android-actions/setup-android@v3
+
+      - name: Clave del VPS
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ vars.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Descodificador FFmpeg
+        # Precompilado una vez y guardado en el VPS (ver build-ffmpeg-decoder.sh): reconstruirlo en
+        # cada build tarda muy largo y necesita NDK — sólo hace falta volver a subirlo ahí el día
+        # que cambie la versión de media3 en gradle/libs.versions.toml.
+        run: |
+          mkdir -p app/libs
+          scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
+
+      - name: Keystore de release
+        run: |
+          mkdir -p keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore/videoclub-release.p12
+
+      - name: local.properties
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          keystore.path=keystore/videoclub-release.p12
+          keystore.alias=videoclub
+          keystore.password=${{ secrets.KEYSTORE_PASSWORD }}
+          panel.url=${{ secrets.PANEL_URL }}
+          panel.user=${{ secrets.PANEL_USER }}
+          panel.password=${{ secrets.PANEL_PASSWORD }}
+          vps.ssh=${{ vars.VPS_SSH }}
+          EOF
+
+      - name: Casas (desde el panel)
+        run: ./sync-casas.sh
+
+      - name: Publicar cada casa
+        run: |
+          set -euo pipefail
+          casas=$(sed -n 's/^casa\.\([A-Za-z0-9-]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
+          [[ -n "$casas" ]] || { echo "El panel no devolvió ninguna casa de Videoclub."; exit 1; }
+          for casa in $casas; do
+            echo "::group::$casa"
+            ./publish.sh --casa "$casa"
+            echo "::endgroup::"
+          done
