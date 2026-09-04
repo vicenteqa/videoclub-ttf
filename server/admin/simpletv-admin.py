@@ -1382,6 +1382,29 @@ def house_for_token(offered):
 
 # ---------------------------------------------------------------------------- asking the supplier
 
+# All six households share the one supplier host (`986534.com`, confirmed by reading every
+# `provider.json` on the box) — so `all_status()` below, asking about all of them at once, is six
+# near-simultaneous requests to the very same host from this one VPS IP. That burst is exactly what
+# was already caught tripping this supplier's own rate limiting elsewhere (see the pacing in
+# `catalogo-maestro.py`, added after a 429 storm reproduced live with `curl`) — which is why a 429
+# here shows up for every household at once rather than one, and clears itself a moment later
+# instead of staying down: it is the burst that gets refused, not any one account. Same fix, same
+# reason: force a minimum gap between requests to this host regardless of which household's check
+# is asking.
+_pacing_lock = threading.Lock()
+_last_provider_request_at = 0.0
+PROVIDER_REQUEST_GAP = 0.35
+
+
+def _pace_provider():
+    global _last_provider_request_at
+    with _pacing_lock:
+        wait = _last_provider_request_at + PROVIDER_REQUEST_GAP - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_provider_request_at = time.monotonic()
+
+
 def provider_status(doc, timeout=8):
     """
     What the supplier says about one account, asked live.
@@ -1394,6 +1417,7 @@ def provider_status(doc, timeout=8):
     Asking costs nothing that matters: this is the login endpoint, not a stream, so it does not take
     the one connection the account allows.
     """
+    _pace_provider()
     base = (doc.get("url") or "").rstrip("/")
     user = doc.get("username") or ""
     secret = doc.get("password") or ""
