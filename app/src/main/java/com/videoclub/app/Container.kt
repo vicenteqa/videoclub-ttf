@@ -140,6 +140,24 @@ class Container(context: Context) {
     /** One hosted-config check at a time; see [adoptHostedConfig]. */
     private var checkInFlight = false
 
+    /**
+     * Whether a film or episode is on screen right now.
+     *
+     * Set by [ui.PlayerScreen] itself, the same way it already tells [MainActivity] to lock the
+     * orientation — see `setPlaybackOrientation`. [startPolling] reads it to skip
+     * [CatalogRepository.checkMirrorHourly] while it is true: measured directly, that check landing
+     * mid-film competed for heap with ExoPlayer's own buffer — generous on purpose, for the
+     * catalogue's highest-bitrate remuxes — and tipped a 256 MB-capped device into the GC pressure
+     * that `StuckPlayerException` reports as a stall. The poll itself keeps running; only the one
+     * errand that has nothing to do with what is on screen right now waits for it to finish.
+     */
+    private var isPlaying = false
+
+    /** [ui.PlayerScreen]. */
+    fun setPlaying(playing: Boolean) {
+        isPlaying = playing
+    }
+
     private val _screenOn = MutableStateFlow(true)
 
     /**
@@ -247,7 +265,7 @@ class Container(context: Context) {
                 delay(FOREGROUND_POLL_MS)
                 val nowMillis = System.currentTimeMillis()
                 adoptHostedConfig(nowMillis)
-                if (!provider.simple) catalog.checkMirrorHourly(nowMillis)
+                if (!provider.simple && !isPlaying) catalog.checkMirrorHourly(nowMillis)
             }
         }
     }

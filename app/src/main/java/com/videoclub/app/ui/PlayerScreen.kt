@@ -176,9 +176,11 @@ fun PlayerScreen(
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         bars?.hide(WindowInsetsCompat.Type.systemBars())
         (activity as? MainActivity)?.setPlaybackOrientation(playing = true)
+        container.setPlaying(true)
         onDispose {
             bars?.show(WindowInsetsCompat.Type.systemBars())
             (activity as? MainActivity)?.setPlaybackOrientation(playing = false)
+            container.setPlaying(false)
         }
     }
 

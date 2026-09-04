@@ -390,15 +390,18 @@ class VodPlayer(
         }
 
         /**
-         * Generous, because the files are enormous.
+         * Generous, because the files are enormous — but not as generous as it used to be.
          *
-         * A 4K remux in this catalogue runs at 20–70 Mbps, and one at 97 Mbps was measured. Half a
-         * minute of buffer at those rates is real memory, but the alternative is a stall every time
-         * the connection dips, and a stall in the middle of a film is far worse than one at the
-         * start of it.
+         * A 4K remux in this catalogue runs at 20–70 Mbps, and one at 97 Mbps was measured. Ninety
+         * seconds of buffer at those rates is real memory, and on a device capped at a 256 MB heap
+         * it was measured directly taking most of it: `OutOfMemoryError` mid-film, `500 (128 MB)`
+         * large objects freed by the GC that followed, and Media3's own stall watchdog firing while
+         * the loading thread waited its turn — reported as a network failure, which it was not.
+         * Forty-five seconds is still enough to ride out an ordinary connection dip; it is not
+         * enough to push a 256 MB device to the edge doing it.
          */
-        const val MIN_BUFFER_MS = 30_000
-        const val MAX_BUFFER_MS = 90_000
+        const val MIN_BUFFER_MS = 15_000
+        const val MAX_BUFFER_MS = 45_000
         const val BUFFER_FOR_PLAYBACK_MS = 2_500
         const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 6_000
 
