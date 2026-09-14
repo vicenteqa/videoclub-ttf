@@ -62,10 +62,12 @@ jobs:
           scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
       - name: Tests
-        # Antes de escribir local.properties, a propósito: sin casas no hay flavours y
-        # `testDebugUnitTest` corre una vez, no una por casa. Un test roto no llega a compilar ningún
-        # APK, y mucho menos a subirlo.
-        run: ./gradlew --no-daemon testDebugUnitTest
+        # Con una sola casa de mentira (`ci`, ver ci.yml), antes de traer las de verdad: así corren una
+        # vez y no una por casa. El paso de local.properties de abajo sobrescribe este fichero entero.
+        # Un test roto no llega a compilar ningún APK, y mucho menos a subirlo.
+        run: |
+          printf 'casa.ci.remoteConfig.url=https://invalid.example/provider.json\n' > local.properties
+          ./gradlew --no-daemon testCiDebugUnitTest
 
       - name: Keystore de release
         run: |

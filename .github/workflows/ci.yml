@@ -4,9 +4,11 @@ name: Comprobar
 # lanza a mano. Esto es lo que dice "compila y los tests pasan" antes de que un APK se acerque a un
 # salón, ahora que el portátil donde se programa no tiene por qué tener SDK de Android.
 #
-# Sin local.properties a propósito: sin casas no hay flavours (ver app/build.gradle.kts), así que
-# `testDebugUnitTest` y `assembleRelease` existen tal cual, y el release firma con la clave de debug.
-# Ni keystore ni contraseña del panel hacen falta para saber si el código compila.
+# Con una casa de mentira, `ci`, y no con ninguna: el código usa `BuildConfig.REMOTE_CONFIG_URL` y
+# `BuildConfig.FLAVOR`, que sólo existen si hay al menos un flavour — sin casas no compila, diga lo
+# que diga el comentario de app/build.gradle.kts. La URL no apunta a nada y no hay keystore, así que
+# el release firma con la clave de debug: ni la contraseña del panel ni la del keystore hacen falta
+# para saber si el código compila, y este APK no sirve para instalarlo en ningún sitio.
 on:
   push:
     paths-ignore:
@@ -51,7 +53,9 @@ jobs:
           scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
       - name: Tests y compilación
-        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+        run: |
+          printf 'casa.ci.remoteConfig.url=https://invalid.example/provider.json\n' > local.properties
+          ./gradlew --no-daemon testCiDebugUnitTest assembleCiRelease
 
       - name: Informe de tests
         if: failure()
