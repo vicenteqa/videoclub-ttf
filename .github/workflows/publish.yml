@@ -1,20 +1,34 @@
 name: Publicar Videoclub
 
-# Un push a main es "esto está listo para salir": compila el release de cada casa y lo publica en
-# el VPS exactamente como lo haría ./publish.sh a mano, casa por casa. paths-ignore para que un
-# commit que sólo toca prosa (README, DEPLOYMENT) no dispare seis builds por nada — y lo mismo para
-# server/**, que este workflow no toca en absoluto: el panel se despliega aparte, a mano por SSH
-# (scp + sudo install + systemctl restart), nunca desde aquí.
+# A mano, nunca en un push. Compila el release de las casas pedidas y lo publica en el VPS
+# exactamente como lo haría ./publish.sh, casa por casa.
+#
+# Antes esto saltaba con cada push a main y publicaba en las seis casas a la vez, que es justo lo que
+# DEPLOYMENT.md dice que no se haga: Android no deja volver a un versionCode anterior, así que
+# escalonar es la única vuelta atrás que hay. Ahora se elige: primero una casa (la propia), se deja un
+# día, y luego el resto.
+#
+#   gh workflow run publish.yml -f casas=vicente
+#   gh workflow run publish.yml -f casas="papa manel"
+#   gh workflow run publish.yml -f casas=todas          (sólo desde main)
+#
+# Desde otra rama se puede publicar en casas sueltas — para probar una rama en la tele propia antes de
+# mezclarla —, pero "todas" sólo sale de main: lo que llega a todos los salones tiene que estar en main.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "server/**"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      casas:
+        description: "Casas separadas por espacios, o «todas» (sólo desde main). Primero una; el resto al día siguiente."
+        required: true
+        default: vicente
 
 permissions:
   contents: read
+
+# Dos publicaciones a la vez se pisarían en el mismo directorio del VPS y en /liberar.
+concurrency:
+  group: publicar
+  cancel-in-progress: false
 
 jobs:
   publicar:
@@ -47,6 +61,12 @@ jobs:
           mkdir -p app/libs
           scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
+      - name: Tests
+        # Antes de escribir local.properties, a propósito: sin casas no hay flavours y
+        # `testDebugUnitTest` corre una vez, no una por casa. Un test roto no llega a compilar ningún
+        # APK, y mucho menos a subirlo.
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       - name: Keystore de release
         run: |
           mkdir -p keystore
@@ -68,11 +88,36 @@ jobs:
       - name: Casas (desde el panel)
         run: ./sync-casas.sh
 
-      - name: Publicar cada casa
+      - name: Publicar
+        # La entrada llega por entorno y no interpolada en el guion: lo que se escribe en ese campo no
+        # debe poder convertirse en bash.
+        env:
+          PEDIDAS: ${{ inputs.casas }}
         run: |
           set -euo pipefail
-          casas=$(sed -n 's/^casa\.\([A-Za-z0-9-]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
-          [[ -n "$casas" ]] || { echo "El panel no devolvió ninguna casa de Videoclub."; exit 1; }
+          conocidas=$(sed -n 's/^casa\.\([A-Za-z0-9-]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
+          [[ -n "$conocidas" ]] || { echo "El panel no devolvió ninguna casa de Videoclub."; exit 1; }
+
+          read -ra pedidas <<< "$PEDIDAS"
+          [[ ${#pedidas[@]} -gt 0 ]] || { echo "No se ha pedido ninguna casa."; exit 1; }
+
+          if [[ "${pedidas[*]}" == "todas" ]]; then
+            [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+              echo "«todas» sólo se publica desde main (esto es $GITHUB_REF). Desde una rama, casas sueltas."
+              exit 1
+            }
+            casas=$conocidas
+          else
+            # Todas comprobadas antes de compilar la primera: un nombre mal escrito al final de la
+            # lista no debe dejar la mitad publicada.
+            for casa in "${pedidas[@]}"; do
+              grep -qx -- "$casa" <<< "$conocidas" || {
+                echo "No hay ninguna casa '$casa'. Hay:"; printf '  %s\n' $conocidas; exit 1
+              }
+            done
+            casas="${pedidas[*]}"
+          fi
+
           for casa in $casas; do
             echo "::group::$casa"
             ./publish.sh --casa "$casa"

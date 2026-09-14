@@ -116,6 +116,26 @@ which turns out to be broken from reaching more than one command typed here.
 Publish to one household, let it sit for a day, then the rest: Android will not let a box go back
 to an older `versionCode`, so staggering the rollout is the only rollback there is.
 
+### From GitHub Actions instead
+
+Nothing above needs this laptop to have an Android SDK. Two workflows cover the same ground:
+
+- **`ci.yml` — every push, any branch.** Runs the unit tests and compiles a release. It publishes
+  nothing; it is how you learn that a change builds before it gets anywhere near a living room.
+- **`publish.yml` — by hand only.** Runs the tests, then does what `./publish.sh` does for the
+  households you name:
+
+```bash
+gh workflow run publish.yml -f casas=vicente                 # your own first
+gh workflow run publish.yml -f casas="papa manel"            # the next day, some more
+gh workflow run publish.yml -f casas=todas                   # or the rest at once — main only
+gh workflow run publish.yml --ref my-branch -f casas=vicente # try a branch on your own TV
+```
+
+Pushing to `main` publishes nothing on purpose: it used to publish to every household at once, which
+is exactly the rollout the paragraph above warns against. `todas` is refused from any branch but
+`main`, so what reaches every household is always what is on `main`.
+
 ## When it fails
 
 **It will not connect.** In order: `tailscale status` to see whether the television is online; then
