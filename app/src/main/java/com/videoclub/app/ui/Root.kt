@@ -77,6 +77,16 @@ fun VideoclubRoot(
             return
         }
 
+        // The general APK, the first time it opens: whose device this is. See [LoginScreen].
+        Startup.NeedsLogin -> {
+            LoginScreen(
+                onLogIn = container::logIn,
+                autoFocus = viewModel.deviceProfile == DeviceProfile.Tv,
+                modifier = inset
+            )
+            return
+        }
+
         Startup.Ready -> Unit
     }
 

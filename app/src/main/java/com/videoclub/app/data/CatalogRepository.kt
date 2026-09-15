@@ -166,90 +166,122 @@ class CatalogRepository(
     /** Which copies of a film agree on its running time. See [agreeingSources]. */
     private val agreementCache = ConcurrentHashMap<Long, List<Source>>()
 
+    /** When this process last started a full download, asked for or not. See [catchUp]. */
+    @Volatile
+    private var fullSyncStartedAtMillis = 0L
+
     /**
-     * Downloads the catalogue if there has never been one, or if the last one is a day old.
+     * Brings the catalogue up to the mirror, as cheaply as the catalogue on disk allows. Called on the
+     * way in and on every foreground poll — see `Container.startPolling`.
      *
-     * A day is right for a catalogue that gains a few dozen titles a week and loses almost nothing:
-     * shorter would be nine hundred requests to learn nothing, longer and the `ÚLTIMOS ESTRENOS` row
-     * would be lying.
+     * - **No catalogue:** the full download, with "Preparando el videoclub…": there is nothing else
+     *   to show, and saying so is the honest answer.
+     * - **A catalogue at a known version:** the mirror's index, a few bytes, and then only the changes
+     *   published since, applied without a word on screen. This is the ordinary case, and it is what
+     *   used to be a 30 MB download and a rewrite of every row once a day.
+     * - **A catalogue at no known version, or too far behind** for the changes the mirror still keeps
+     *   — or one a changes file did not fit: the full download again, but quietly, at most once an
+     *   hour, with the rows on screen staying where they are.
+     *
+     * A failure to reach the index is not a reason to do anything: the next poll asks again.
      */
-    fun refreshIfStale(nowMillis: Long) {
-        // An empty catalogue overrides the clock. The timestamp now lives beside the rows it
-        // describes, so the two should never disagree, but a future migration that drops a
-        // catalogue table and keeps `meta` would bring the disagreement back — and its symptom is
-        // an empty app that refuses to fill itself for the rest of the day.
+    fun catchUp(nowMillis: Long) {
+        if (syncJob?.isActive == true) return
         if (!store.hasCatalogue) {
             refresh(nowMillis)
             return
         }
-        val age = nowMillis - store.syncedAtMillis
-        if (store.syncedAtMillis != 0L && age < MAX_AGE_MILLIS) return
-        refresh(nowMillis)
+        syncJob = scope.launch {
+            runCatching { catchUpNow(nowMillis) }
+                .onFailure { error -> Log.w(TAG, "Catalogue catch-up failed", error) }
+        }
     }
 
-    fun refresh(nowMillis: Long) {
-        if (syncJob?.isActive == true) return
-        syncJob = scope.launch {
-            _syncState.value = SyncState.Running(SyncProgress(0, 0, ""))
-            runCatching {
-                sync.run(nowMillis) { progress ->
-                    _syncState.value = SyncState.Running(progress)
-                    // A batch can be the first titles of a category, which is what makes it a row.
-                    shelvingCache.clear()
-                    // And it can add a copy of a film that already had two, which changes who the
-                    // majority is.
-                    agreementCache.clear()
-                    // Every batch adds rows. Announcing it here is what makes a fresh install fill
-                    // in front of the user instead of staring at nothing for three minutes.
-                    _revision.update { it + 1 }
-                }
-            }.onSuccess { complete ->
-                // A partial catalogue is still a usable one — the rows that did arrive are correct,
-                // and nothing was deleted. Say so quietly rather than pretending it all worked.
-                _syncState.value = if (complete) SyncState.Ready
-                else SyncState.Failed("El catálogo se descargó a medias.")
-                _revision.update { it + 1 }
-            }.onFailure { error ->
-                Log.w(TAG, "Catalogue sync failed", error)
-                _syncState.value = SyncState.Failed(error.message ?: "Sin conexión con el proveedor.")
-                // Whatever arrived before it broke is in the database and is correct. Without this
-                // bump nothing asks for it, and a failed first sync leaves an app that says it is
-                // empty while holding half a catalogue.
-                _revision.update { it + 1 }
+    private suspend fun catchUpNow(nowMillis: Long) {
+        val local = withContext(Dispatchers.IO) { store.catalogVersion }
+        val index = client.catalogIndex() ?: return
+        when {
+            index.version == local -> withContext(Dispatchers.IO) { store.markSynced(nowMillis) }
+            index.canCatchUpFrom(local) -> applyChangesSince(local, index, nowMillis)
+            nowMillis - fullSyncStartedAtMillis < FULL_SYNC_RETRY_MILLIS -> Unit
+            else -> {
+                Log.i(TAG, "Catalogue at version $local cannot catch up with ${index.version}; downloading the mirror")
+                runFullSync(nowMillis, quiet = true)
             }
         }
     }
 
-    /**
-     * The lightweight hourly top-up, tied to the foreground poll — see `Container.startPolling` —
-     * rather than the once-a-day [refreshIfStale]. Asks the mirror conditionally and only touches
-     * anything when it actually has something new; the overwhelming majority of calls find nothing
-     * has moved since the last check and cost one small exchange of headers.
-     *
-     * Deliberately not [refresh]: that one drives "Preparando el videoclub…" and "se descargó a
-     * medias", which have no business appearing for a check nobody asked for. And it never falls
-     * back to the supplier directly — see [CatalogSync.run]'s `mirrorOnly` — so a household whose
-     * mirror is briefly unreachable pays for one quiet failed request an hour, not nine hundred.
-     */
-    fun checkMirrorHourly(nowMillis: Long) {
+    private suspend fun applyChangesSince(local: Long, index: CatalogIndex, nowMillis: Long) {
+        var version = local
+        while (version < index.version) {
+            // Not this time: the next poll asks again, from wherever this got to.
+            val changes = client.catalogChanges(version + 1) ?: return
+            val applied = withContext(Dispatchers.IO) { store.applyChanges(changes, nowMillis) }
+            if (!applied) {
+                if (nowMillis - fullSyncStartedAtMillis >= FULL_SYNC_RETRY_MILLIS) {
+                    Log.w(TAG, "Changes ${changes.version} do not fit this catalogue; downloading the mirror")
+                    runFullSync(nowMillis, quiet = true)
+                }
+                return
+            }
+            version = changes.version
+            shelvingCache.clear()
+            agreementCache.clear()
+            _revision.update { it + 1 }
+        }
+        withContext(Dispatchers.IO) { store.markSynced(nowMillis) }
+        Log.i(TAG, "Catalogue caught up from version $local to $version")
+    }
+
+    /** The full download, because somebody asked for it or because there is no catalogue at all. */
+    fun refresh(nowMillis: Long) {
         if (syncJob?.isActive == true) return
-        val age = nowMillis - store.syncedAtMillis
-        if (store.syncedAtMillis != 0L && age < MIRROR_CHECK_INTERVAL_MILLIS) return
-        syncJob = scope.launch {
-            runCatching {
-                sync.run(nowMillis, mirrorOnly = true) {
-                    shelvingCache.clear()
-                    agreementCache.clear()
+        syncJob = scope.launch { runFullSync(nowMillis, quiet = false) }
+    }
+
+    /**
+     * The whole mirror — or, where it has nothing, the supplier — into the catalogue.
+     *
+     * [quiet] is for a catalogue already on screen that nobody asked to rebuild: no progress and no
+     * "se descargó a medias", one [revision] bump at the end instead of one per batch (each of which
+     * would re-read the shelves under the cursor), and no falling back to the supplier's nine hundred
+     * requests unless the catalogue is days old. A mirror that fails once is simply tried again
+     * within the hour; the supplier never needs to hear about it.
+     */
+    private suspend fun runFullSync(nowMillis: Long, quiet: Boolean) {
+        fullSyncStartedAtMillis = nowMillis
+        if (!quiet) _syncState.value = SyncState.Running(SyncProgress(0, 0, ""))
+        runCatching {
+            val syncedAt = withContext(Dispatchers.IO) { store.syncedAtMillis }
+            val mirrorOnly = quiet && syncedAt != 0L && nowMillis - syncedAt < SUPPLIER_FALLBACK_AFTER_MILLIS
+            sync.run(nowMillis, mirrorOnly) { progress ->
+                // A batch can be the first titles of a category, which is what makes it a row.
+                shelvingCache.clear()
+                // And it can add a copy of a film that already had two, which changes who the
+                // majority is.
+                agreementCache.clear()
+                if (!quiet) {
+                    _syncState.value = SyncState.Running(progress)
+                    // Every batch adds rows. Announcing it here is what makes a fresh install fill
+                    // in front of the user instead of staring at nothing for three minutes.
                     _revision.update { it + 1 }
                 }
-            }.onSuccess { complete ->
-                if (complete) _revision.update { it + 1 }
-                // A gap here is nothing to alarm anybody about — unlike refresh()'s "se descargó a
-                // medias", which answers a person who asked. Nobody asked for this one; the next
-                // check, an hour or a day away, tries again on its own.
-            }.onFailure { error ->
-                Log.w(TAG, "Hourly catalogue check failed", error)
             }
+        }.onSuccess { complete ->
+            // A partial catalogue is still a usable one — the rows that did arrive are correct,
+            // and nothing was deleted. Say so quietly rather than pretending it all worked.
+            if (!quiet) {
+                _syncState.value = if (complete) SyncState.Ready
+                else SyncState.Failed("El catálogo se descargó a medias.")
+            }
+            _revision.update { it + 1 }
+        }.onFailure { error ->
+            Log.w(TAG, "Catalogue sync failed", error)
+            if (!quiet) _syncState.value = SyncState.Failed(error.message ?: "Sin conexión con el proveedor.")
+            // Whatever arrived before it broke is in the database and is correct. Without this
+            // bump nothing asks for it, and a failed first sync leaves an app that says it is
+            // empty while holding half a catalogue.
+            _revision.update { it + 1 }
         }
     }
 
@@ -629,10 +661,12 @@ class CatalogRepository(
 
     private companion object {
         const val TAG = "CatalogRepository"
-        const val MAX_AGE_MILLIS = 24L * 60 * 60 * 1000
 
-        /** See [checkMirrorHourly]. */
-        const val MIRROR_CHECK_INTERVAL_MILLIS = 60L * 60 * 1000
+        /** See [catchUp]: how long a full download nobody asked for waits before it is tried again. */
+        const val FULL_SYNC_RETRY_MILLIS = 60L * 60 * 1000
+
+        /** See [runFullSync]: how old a catalogue must be before a quiet download may ask the supplier. */
+        const val SUPPLIER_FALLBACK_AFTER_MILLIS = 3L * 24 * 60 * 60 * 1000
         const val ROW_TITLES = 24
         const val SEARCH_RESULTS = 60
 

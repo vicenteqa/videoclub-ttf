@@ -5,9 +5,11 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteStatement
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_CATEGORY
 import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_DETAIL
+import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_LISTING
 import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_META
 import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_PROGRESS
 import com.videoclub.app.data.CatalogDatabase.Companion.TABLE_SOURCE
@@ -681,6 +683,187 @@ class CatalogStore(context: Context) {
         catalogMirrorEtag = etag
     }
 
+    /**
+     * Which version of the mirror this catalogue holds — see [CatalogIndex] — or 0 when it is not
+     * known to match any: downloaded before the mirror had versions, built from the supplier directly,
+     * left halfway by a download that did not finish, or just upgraded to a schema whose
+     * [TABLE_LISTING] is still empty. Changes are only ever applied on top of a version that is known.
+     *
+     * In [TABLE_META] for the reason [syncedAtMillis] is: it describes the rows beside it.
+     */
+    val catalogVersion: Long
+        get() = helper.readableDatabase
+            .rawQuery("SELECT value FROM $TABLE_META WHERE key = ?", arrayOf(KEY_CATALOG_VERSION))
+            .use { if (it.moveToFirst()) it.getLong(0) else 0L }
+
+    fun markCatalogVersion(version: Long) {
+        writeCatalogVersion(helper.writableDatabase, version)
+    }
+
+    private fun writeCatalogVersion(db: SQLiteDatabase, version: Long) {
+        db.replace(
+            TABLE_META,
+            null,
+            ContentValues().apply {
+                put("key", KEY_CATALOG_VERSION)
+                put("value", version)
+            }
+        )
+    }
+
+    /**
+     * Applies one changes file, all of it or none of it, and records its version in the same
+     * transaction.
+     *
+     * Returns false, having written nothing, when this catalogue cannot take it: a category the file
+     * names is not here, or an id in an order was never filed. Either means the catalogue on disk is
+     * not the version the file was written against, and only downloading the mirror whole mends that.
+     *
+     * What it leaves is what a full download would have left, restricted to what moved. The category
+     * list of a kind that changed is filed again and the categories missing from it removed. Each
+     * listing named is rebuilt from its order, its new and changed rows filed through the very
+     * statements a full download uses. And a supplier id that is no longer listed anywhere takes its
+     * source with it, and a work whose last source went takes itself — which a full download does by
+     * sweeping stamps, and which here is what [TABLE_LISTING] exists to answer.
+     */
+    fun applyChanges(changes: CatalogChanges, stamp: Long): Boolean {
+        val db = helper.writableDatabase
+        val session = SyncSession(db, stamp)
+        // Every (kind, supplier id) that left a listing: it goes if it is listed nowhere now.
+        val leftListing = HashSet<Pair<Kind, Int>>()
+        // Every work that lost a source: it goes if that was its last.
+        val lostSource = HashSet<Long>()
+        db.beginTransaction()
+        try {
+            changes.categories.forEach { (kind, categories) ->
+                val kept = categories.mapIndexed { position, category ->
+                    session.putCategory(kind, category, position)
+                }.toSet()
+                categoryIds(db, kind).filter { it !in kept }.forEach { removeCategory(db, it, leftListing) }
+            }
+            changes.removedListings.forEach { (kind, remoteId) ->
+                categoryId(db, kind, remoteId)?.let { removeCategory(db, it, leftListing) }
+            }
+
+            for (change in changes.listings) {
+                val categoryId = categoryId(db, change.kind, change.categoryId) ?: run {
+                    Log.w(TAG, "Changes ${changes.version} name category ${change.categoryId}, which is not here")
+                    return false
+                }
+
+                val filed = HashMap<Int, Long>()
+                for (listing in change.items) {
+                    val titleId = session.fileWork(change.kind, listing)
+                    filed[listing.remoteId] = titleId
+                    listing.detail?.let { putListingDetail(titleId, it) }
+                    lostSource += session.dropOtherSources(change.kind, listing.remoteId, titleId)
+                }
+
+                val before = listingRows(db, categoryId)
+                val where = arrayOf(categoryId.toString())
+                db.delete(TABLE_LISTING, "category_id = ?", where)
+                db.delete(TABLE_TITLE_CATEGORY, "category_id = ?", where)
+                change.order.forEachIndexed { position, remoteId ->
+                    val titleId = filed[remoteId] ?: before[remoteId] ?: filedTitle(db, change.kind, remoteId) ?: run {
+                        Log.w(TAG, "Changes ${changes.version} list id $remoteId, which was never filed here")
+                        return false
+                    }
+                    session.link(categoryId, titleId, position)
+                    session.putListingRow(categoryId, position, change.kind, remoteId, titleId)
+                }
+
+                val listedNow = change.order.toHashSet()
+                before.keys.filterNot { it in listedNow }.forEach { leftListing += change.kind to it }
+            }
+
+            leftListing.forEach { (kind, remoteId) ->
+                if (!isListed(db, kind, remoteId)) lostSource += dropSources(db, kind, remoteId)
+            }
+            lostSource.forEach { titleId -> if (!hasSource(db, titleId)) dropWork(db, titleId) }
+
+            writeCatalogVersion(db, changes.version)
+            db.setTransactionSuccessful()
+            return true
+        } finally {
+            db.endTransaction()
+            session.close()
+        }
+    }
+
+    private fun categoryIds(db: SQLiteDatabase, kind: Kind): List<Long> =
+        db.rawQuery("SELECT id FROM $TABLE_CATEGORY WHERE kind = ?", arrayOf(kind.ordinal.toString()))
+            .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0)) } }
+
+    private fun categoryId(db: SQLiteDatabase, kind: Kind, remoteId: String): Long? =
+        db.rawQuery(
+            "SELECT id FROM $TABLE_CATEGORY WHERE kind = ? AND remote_id = ?",
+            arrayOf(kind.ordinal.toString(), remoteId)
+        ).use { if (it.moveToFirst()) it.getLong(0) else null }
+
+    /** Supplier id to work, for what a category lists now. */
+    private fun listingRows(db: SQLiteDatabase, categoryId: Long): Map<Int, Long> =
+        db.rawQuery(
+            "SELECT remote_id, title_id FROM $TABLE_LISTING WHERE category_id = ?",
+            arrayOf(categoryId.toString())
+        ).use { cursor ->
+            HashMap<Int, Long>().apply { while (cursor.moveToNext()) put(cursor.getInt(0), cursor.getLong(1)) }
+        }
+
+    /** The work a supplier id is filed under, wherever it is listed. */
+    private fun filedTitle(db: SQLiteDatabase, kind: Kind, remoteId: Int): Long? =
+        db.rawQuery(
+            "SELECT s.title_id FROM $TABLE_SOURCE s JOIN $TABLE_TITLE t ON t.id = s.title_id " +
+                "WHERE s.remote_id = ? AND t.kind = ? LIMIT 1",
+            arrayOf(remoteId.toString(), kind.ordinal.toString())
+        ).use { if (it.moveToFirst()) it.getLong(0) else null }
+
+    /** A category and what it lists, noting every id that leaves with it. */
+    private fun removeCategory(db: SQLiteDatabase, categoryId: Long, leftListing: MutableSet<Pair<Kind, Int>>) {
+        val where = arrayOf(categoryId.toString())
+        db.rawQuery("SELECT kind, remote_id FROM $TABLE_LISTING WHERE category_id = ?", where).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = if (cursor.getInt(0) == Kind.Movie.ordinal) Kind.Movie else Kind.Series
+                leftListing += kind to cursor.getInt(1)
+            }
+        }
+        db.delete(TABLE_LISTING, "category_id = ?", where)
+        db.delete(TABLE_TITLE_CATEGORY, "category_id = ?", where)
+        db.delete(TABLE_CATEGORY, "id = ?", where)
+    }
+
+    private fun isListed(db: SQLiteDatabase, kind: Kind, remoteId: Int): Boolean =
+        db.rawQuery(
+            "SELECT 1 FROM $TABLE_LISTING WHERE kind = ? AND remote_id = ? LIMIT 1",
+            arrayOf(kind.ordinal.toString(), remoteId.toString())
+        ).use(Cursor::moveToFirst)
+
+    /** Drops a supplier id's sources, returning the works they belonged to. */
+    private fun dropSources(db: SQLiteDatabase, kind: Kind, remoteId: Int): List<Long> {
+        val works = db.rawQuery(
+            "SELECT s.title_id FROM $TABLE_SOURCE s JOIN $TABLE_TITLE t ON t.id = s.title_id " +
+                "WHERE s.remote_id = ? AND t.kind = ?",
+            arrayOf(remoteId.toString(), kind.ordinal.toString())
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0)) } }
+        works.forEach { db.delete(TABLE_SOURCE, "title_id = ? AND remote_id = ?", arrayOf(it.toString(), remoteId.toString())) }
+        return works
+    }
+
+    private fun hasSource(db: SQLiteDatabase, titleId: Long): Boolean =
+        db.rawQuery("SELECT 1 FROM $TABLE_SOURCE WHERE title_id = ? LIMIT 1", arrayOf(titleId.toString()))
+            .use(Cursor::moveToFirst)
+
+    /**
+     * A work the supplier no longer lists at all. Its progress and "My list" rows stay, exactly as a
+     * full download's sweep leaves them: they wait, by `merge_key`, for the title to come back.
+     */
+    private fun dropWork(db: SQLiteDatabase, titleId: Long) {
+        val where = arrayOf(titleId.toString())
+        db.delete(TABLE_TITLE_CATEGORY, "title_id = ?", where)
+        db.delete(TABLE_LISTING, "title_id = ?", where)
+        db.delete(TABLE_DETAIL, "title_id = ?", where)
+        db.delete(TABLE_TITLE, "id = ?", where)
+    }
+
     // ---------------------------------------------------------------------------------- helpers
 
     /** One `WHERE` fragment and the arguments that go with it, in the order the fragment names them. */
@@ -993,11 +1176,14 @@ class CatalogStore(context: Context) {
         ).use { if (it.moveToFirst()) it.getLong(0) else null }
 
     private companion object {
+        const val TAG = "CatalogStore"
         const val PREFS_NAME = "videoclub"
         /** A row of [TABLE_META], not a preference: see [syncedAtMillis]. */
         const val KEY_SYNCED_AT = "synced_at"
         /** A row of [TABLE_META], not a preference: see [catalogMirrorEtag]. */
         const val KEY_MIRROR_ETAG = "mirror_etag"
+        /** A row of [TABLE_META]: see [catalogVersion]. `CatalogDatabase` forgets it by this name. */
+        const val KEY_CATALOG_VERSION = "catalog_version"
         const val KEY_SYNC_COUNTER = "sync_counter"
         const val KEY_LAST_PROFILE = "last_profile"
 
@@ -1062,6 +1248,10 @@ class SyncSession internal constructor(
         "INSERT OR REPLACE INTO $TABLE_TITLE_CATEGORY (category_id, title_id, position, stamp) " +
             "VALUES (?, ?, ?, ?)"
     )
+    private val insertListing: SQLiteStatement = db.compileStatement(
+        "INSERT OR REPLACE INTO $TABLE_LISTING (category_id, position, kind, remote_id, title_id) " +
+            "VALUES (?, ?, ?, ?, ?)"
+    )
 
     fun <T> transaction(body: () -> T): T {
         db.beginTransaction()
@@ -1101,6 +1291,58 @@ class SyncSession internal constructor(
      * encode as one of its sources, and links it to the category being read.
      */
     fun putListing(kind: Kind, categoryId: Long, listing: Listing, position: Int): Long {
+        val titleId = fileWork(kind, listing)
+        link(categoryId, titleId, position)
+        putListingRow(categoryId, position, kind, listing.remoteId, titleId)
+        return titleId
+    }
+
+    /** Forgets which ids a category lists, just before a full download writes them again. */
+    fun clearListingRows(categoryId: Long) {
+        db.delete(TABLE_LISTING, "category_id = ?", arrayOf(categoryId.toString()))
+    }
+
+    fun link(categoryId: Long, titleId: Long, position: Int) {
+        insertLink.run {
+            clearBindings()
+            bindLong(1, categoryId)
+            bindLong(2, titleId)
+            bindLong(3, position.toLong())
+            bindLong(4, stamp)
+            executeInsert()
+        }
+    }
+
+    fun putListingRow(categoryId: Long, position: Int, kind: Kind, remoteId: Int, titleId: Long) {
+        insertListing.run {
+            clearBindings()
+            bindLong(1, categoryId)
+            bindLong(2, position.toLong())
+            bindLong(3, kind.ordinal.toLong())
+            bindLong(4, remoteId.toLong())
+            bindLong(5, titleId)
+            executeInsert()
+        }
+    }
+
+    /**
+     * Drops the sources this supplier id has under any work but [titleId] — which happens when the
+     * supplier renames a row and it folds into a different work — and returns those works.
+     */
+    fun dropOtherSources(kind: Kind, remoteId: Int, titleId: Long): List<Long> {
+        val others = db.rawQuery(
+            "SELECT s.title_id FROM $TABLE_SOURCE s JOIN $TABLE_TITLE t ON t.id = s.title_id " +
+                "WHERE s.remote_id = ? AND t.kind = ? AND s.title_id <> ?",
+            arrayOf(remoteId.toString(), kind.ordinal.toString(), titleId.toString())
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0)) } }
+        others.forEach {
+            db.delete(TABLE_SOURCE, "title_id = ? AND remote_id = ?", arrayOf(it.toString(), remoteId.toString()))
+        }
+        return others
+    }
+
+    /** Creates the work if this is its first sighting, and records this encode as one of its sources. */
+    fun fileWork(kind: Kind, listing: Listing): Long {
         val parsed = TitleNaming.parse(listing.rawName)
         val key = TitleNaming.mergeKey(kind, parsed.name, parsed.year)
 
@@ -1145,15 +1387,6 @@ class SyncSession internal constructor(
             executeInsert()
         }
 
-        insertLink.run {
-            clearBindings()
-            bindLong(1, categoryId)
-            bindLong(2, titleId)
-            bindLong(3, position.toLong())
-            bindLong(4, stamp)
-            executeInsert()
-        }
-
         return titleId
     }
 
@@ -1164,6 +1397,7 @@ class SyncSession internal constructor(
             db.execSQL("DELETE FROM $TABLE_TITLE_CATEGORY WHERE stamp <> ?", arrayOf(stamp))
             db.execSQL("DELETE FROM $TABLE_SOURCE WHERE stamp <> ?", arrayOf(stamp))
             db.execSQL("DELETE FROM $TABLE_CATEGORY WHERE stamp <> ?", arrayOf(stamp))
+            db.execSQL("DELETE FROM $TABLE_LISTING WHERE category_id NOT IN (SELECT id FROM $TABLE_CATEGORY)")
             db.execSQL("DELETE FROM $TABLE_TITLE WHERE stamp <> ?", arrayOf(stamp))
             db.execSQL("DELETE FROM $TABLE_DETAIL WHERE title_id NOT IN (SELECT id FROM $TABLE_TITLE)")
             db.setTransactionSuccessful()
@@ -1174,6 +1408,7 @@ class SyncSession internal constructor(
     }
 
     fun close() {
-        listOf(insertTitle, touchTitle, selectId, insertSource, insertLink).forEach(SQLiteStatement::close)
+        listOf(insertTitle, touchTitle, selectId, insertSource, insertLink, insertListing)
+            .forEach(SQLiteStatement::close)
     }
 }

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
-# Trae del panel la lista de casas y la deja en local.properties.
+# Trae del panel la lista de casas y deja en local.properties las que tienen APK propio.
 #
 #   ./sync-casas.sh
+#
+# Sólo las simples: son las únicas que llevan la URL de su documento compilada. Todas las demás usan
+# el APK general, que no necesita saber nada de ninguna casa para compilarse.
 #
 # Las casas nacen en el panel del VPS: allí se crea el directorio, el documento y el token, y de ahí
 # sale la URL. Este guion es lo único que cruza esa lista hasta la máquina que compila, y existe
@@ -46,6 +49,7 @@ import json, re, sys
 
 casas_path, app, props_path = sys.argv[1], sys.argv[2], sys.argv[3]
 casas = [c for c in json.load(open(casas_path))["casas"] if c.get("app") == app]
+simples = [c for c in casas if c.get("simple")]
 
 lines = open(props_path, encoding="utf-8").read().split("\n")
 # Fuera las líneas de casas que hubiera, incluida la cabecera que este guion escribe. Lo demás
@@ -63,15 +67,15 @@ for line in lines:
     kept.append(line)
 
 body = "\n".join(kept).rstrip("\n")
-if casas:
+if simples:
     body += "\n\n# --- Casas (las escribe ./sync-casas.sh) --------------------------------------\n"
-    body += "\n".join(f"casa.{c['id']}.remoteConfig.url={c['url']}" for c in casas)
+    body += "\n".join(f"casa.{c['id']}.remoteConfig.url={c['url']}" for c in simples)
 open(props_path, "w", encoding="utf-8").write(body + "\n")
 
 print(f"  {len(casas)} casa(s) de {app}:")
 for c in casas:
-    print(f"    {c['id']:12} {c['nombre']}")
+    print(f"    {c['id']:18} {c['nombre']:14} {'APK propio (simple)' if c.get('simple') else 'APK general'}")
 PY
 
 printf '\n\033[32m✓ local.properties al día\033[0m\n'
-echo "  Gradle generará un flavour por casa. Compila con: ./deploy.sh --casa <nombre>"
+echo "  Gradle generará el flavour general y uno por casa simple. Publica con: ./publish.sh --casa <id>"

@@ -81,6 +81,25 @@ private fun File.deleteContents() {
     listFiles().orEmpty().forEach { it.deleteRecursively() }
 }
 
+/**
+ * The household stamped on this device, or null — written by [wipeIfHouseholdChanged] for a
+ * household's own APK, and by [linkHousehold] for the general one.
+ *
+ * One stamp for both, on purpose. Every device that already has the app carries its household here,
+ * so the general APK installed over it knows whose it is without asking anybody anything; and a
+ * household's own APK installed over the general one compares against it and wipes, exactly as it
+ * would over any other household's.
+ */
+fun linkedHouseholdUrl(context: Context): String? =
+    context.getSharedPreferences(STAMP_PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_URL, null)
+        ?.takeIf { it.isNotBlank() }
+
+/** Stamps the household the general APK logged into. `commit`, for [wipeIfHouseholdChanged]'s reason. */
+fun linkHousehold(context: Context, url: String) {
+    context.getSharedPreferences(STAMP_PREFS, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).commit()
+}
+
 private const val TAG = "HouseholdWipe"
 private const val STAMP_PREFS = "videoclub-casa"
 private const val KEY_URL = "remote_config_url"

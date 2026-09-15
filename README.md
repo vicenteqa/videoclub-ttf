@@ -34,8 +34,8 @@ without having to visit any of those houses.
 app/                 The Android application (Kotlin + Compose, media3/ExoPlayer)
 tests/e2e/           Tests against real devices, over ADB
 deploy.sh            Build and install onto one household's television
-publish.sh           Build one household's release and publish it on the VPS
-sync-casas.sh        Pull the list of households from the panel into local.properties
+publish.sh           Build the releases the named households need and publish them on the VPS
+sync-casas.sh        Pull the simple households, the ones with an APK of their own, into local.properties
 ```
 
 The panel and the VPS setup live in their own repository,
@@ -75,21 +75,27 @@ it is open.
 The practical consequence is the one that matters: **changing a password is editing a file on a
 server**, not driving to someone else's living room with a laptop.
 
-The only thing that *is* compiled in is *which document to read*, because that is the single thing
-two households do not share. Hence one APK per household: Gradle generates a flavour for every
-`casa.<id>.remoteConfig.url` in `local.properties`, which `./sync-casas.sh` in turn pulls from the
-panel.
+Which document to read is the single thing two households do not share, and there are two ways an
+APK learns it:
 
-That URL **is the credential**: the document carries the password in the clear and there is no
-login. Hence the random path segment, and hence `local.properties` never being committed.
+- **`general`, for every household that is not simple.** One APK. The first time it opens it asks
+  for the household's username and password — set in the panel — and trades them at
+  `/videoclub/login` for the document's URL, which it keeps. A device that already had the app keeps
+  the URL its previous APK left behind, and asks nothing.
+- **One APK per simple household**, with the URL compiled in, so that it goes straight to the
+  television: Gradle generates a flavour for every `casa.<id>.remoteConfig.url` in
+  `local.properties`, which `./sync-casas.sh` pulls from the panel for simple households only.
+
+That URL **is the credential**: the document carries the password in the clear. Hence the random
+path segment, the attempt limits on the login, and `local.properties` never being committed.
 
 ## Getting started
 
 ```bash
 cp local.properties.example local.properties   # then fill it in
 ./build-ffmpeg-decoder.sh                      # the decoder, once
-./sync-casas.sh                                # pull the households from the panel
-./gradlew :app:assembleVicenteDebug            # or whichever household
+./sync-casas.sh                                # pull the simple households from the panel
+./gradlew :app:assembleGeneralDebug            # or a simple household's flavour
 ```
 
 You need **JDK 17** (the Android plugin rejects newer ones) and the Android SDK.

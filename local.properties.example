@@ -43,13 +43,14 @@
 
 # --- Las casas ---------------------------------------------------------------
 # **No se escriben a mano**: las trae ./sync-casas.sh desde el panel, que es donde
-# nacen. Gradle genera un flavour por cada línea de éstas, así que cada casa
-# tiene su APK con su URL compilada dentro.
+# nacen, y sólo las **simples**, que son las únicas con APK propio y su URL
+# compilada dentro. Todas las demás usan el flavour `general`, que siempre existe:
+# la primera vez pregunta usuario y contraseña de la casa (los de «Cuenta» en el
+# panel) a `/videoclub/login`, cuya dirección sale de panel.url.
 #
 # Esa URL *es* la credencial: el documento lleva la contraseña del proveedor en
-# claro y no hay ningún login, de ahí el segmento largo y aleatorio.
+# claro, de ahí el segmento largo y aleatorio.
 #
-# casa.vicente.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
 # casa.papa.remoteConfig.url=https://tu-vps.example.org/videoclub/<aleatorio>/provider.json
 
 # --- El VPS, para ./publish.sh ------------------------------------------------

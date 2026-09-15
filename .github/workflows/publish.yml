@@ -45,6 +45,9 @@ jobs:
 
       - name: SDK de Android
         uses: android-actions/setup-android@v3
+        with:
+          # Sin `tools`: ver ci.yml.
+          packages: platform-tools
 
       - name: Clave del VPS
         run: |
@@ -62,12 +65,9 @@ jobs:
           scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
       - name: Tests
-        # Con una sola casa de mentira (`ci`, ver ci.yml), antes de traer las de verdad: así corren una
-        # vez y no una por casa. El paso de local.properties de abajo sobrescribe este fichero entero.
-        # Un test roto no llega a compilar ningún APK, y mucho menos a subirlo.
-        run: |
-          printf 'casa.ci.remoteConfig.url=https://invalid.example/provider.json\n' > local.properties
-          ./gradlew --no-daemon testCiDebugUnitTest
+        # Con el flavour `general` (ver ci.yml), antes de traer ninguna casa: así corren una vez y no una
+        # por flavour. Un test roto no llega a compilar ningún APK, y mucho menos a subirlo.
+        run: ./gradlew --no-daemon testGeneralDebugUnitTest
 
       - name: Keystore de release
         run: |
@@ -95,11 +95,10 @@ jobs:
         # debe poder convertirse en bash.
         env:
           PEDIDAS: ${{ inputs.casas }}
+        # Las casas se comprueban en publish.sh, contra el panel y todas antes de compilar: aquí ya no
+        # hay lista con la que compararlas, porque local.properties sólo lleva las simples.
         run: |
           set -euo pipefail
-          conocidas=$(sed -n 's/^casa\.\([A-Za-z0-9-]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
-          [[ -n "$conocidas" ]] || { echo "El panel no devolvió ninguna casa de Videoclub."; exit 1; }
-
           read -ra pedidas <<< "$PEDIDAS"
           [[ ${#pedidas[@]} -gt 0 ]] || { echo "No se ha pedido ninguna casa."; exit 1; }
 
@@ -108,20 +107,9 @@ jobs:
               echo "«todas» sólo se publica desde main (esto es $GITHUB_REF). Desde una rama, casas sueltas."
               exit 1
             }
-            casas=$conocidas
+            ./publish.sh --todas
           else
-            # Todas comprobadas antes de compilar la primera: un nombre mal escrito al final de la
-            # lista no debe dejar la mitad publicada.
-            for casa in "${pedidas[@]}"; do
-              grep -qx -- "$casa" <<< "$conocidas" || {
-                echo "No hay ninguna casa '$casa'. Hay:"; printf '  %s\n' $conocidas; exit 1
-              }
-            done
-            casas="${pedidas[*]}"
+            args=()
+            for casa in "${pedidas[@]}"; do args+=(--casa "$casa"); done
+            ./publish.sh "${args[@]}"
           fi
-
-          for casa in $casas; do
-            echo "::group::$casa"
-            ./publish.sh --casa "$casa"
-            echo "::endgroup::"
-          done

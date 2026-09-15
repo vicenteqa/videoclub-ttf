@@ -28,11 +28,12 @@ import okhttp3.Request
  */
 class RemoteConfigClient(
     http: OkHttpClient,
-    private val url: String
+    /** Read on every call: in the general APK it only exists once somebody has logged in. */
+    private val url: () -> String
 ) {
 
-    /** Whether this build has somewhere to ask. An unset or non-HTTPS URL disables the feature. */
-    val isEnabled: Boolean = url.startsWith("https://")
+    /** Whether there is somewhere to ask. An unset or non-HTTPS URL disables the feature. */
+    val isEnabled: Boolean get() = url().startsWith("https://")
 
     // Derived from the shared client so the connection pool is reused, but with its own timeouts:
     // the shared read timeout is tuned for a live stream, where twenty silent seconds is normal.
@@ -52,10 +53,11 @@ class RemoteConfigClient(
      * network is ready.
      */
     suspend fun fetch(): ProviderOverrides? = withContext(Dispatchers.IO) {
-        if (!isEnabled) return@withContext null
+        val target = url()
+        if (!target.startsWith("https://")) return@withContext null
 
         val request = Request.Builder()
-            .url(url)
+            .url(target)
             .header("User-Agent", ProviderConfig.DEFAULT_USER_AGENT)
             .header("Cache-Control", "no-cache")
             .build()

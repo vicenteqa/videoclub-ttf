@@ -219,8 +219,8 @@ fun BrowseScreen(
 /**
  * What the app shows while the videoclub is being built, for the two or three minutes it takes.
  *
- * The first time it is opened, and once a day after that, when [CatalogRepository.refreshIfStale]
- * decides the catalogue has gone stale.
+ * Only while there is no catalogue at all, or when somebody asks for it again — see
+ * [CatalogRepository.catchUp]: keeping an existing catalogue current happens without a word on screen.
  *
  * A determinate ring rather than a spinner wherever the total is known, which is from the first
  * batch onwards: "it is working" is worth much less than "it is two thirds of the way through", and

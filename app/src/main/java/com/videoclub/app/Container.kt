@@ -14,7 +14,11 @@ import com.videoclub.app.data.ProviderSettings
 import com.videoclub.app.data.RemoteConfigClient
 import com.videoclub.app.data.VodClient
 import com.videoclub.app.data.WatchReporter
+import com.videoclub.app.data.HouseholdLogin
+import com.videoclub.app.data.LoginOutcome
 import com.videoclub.app.data.detectDeviceProfile
+import com.videoclub.app.data.linkHousehold
+import com.videoclub.app.data.linkedHouseholdUrl
 import com.videoclub.app.data.wipeIfHouseholdChanged
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 /**
@@ -36,7 +41,7 @@ import okhttp3.OkHttpClient
  * screen replaces an annotation processor and the build time it costs.
  */
 /** What the app is allowed to draw, before and after it knows which household it belongs to. */
-enum class Startup { Checking, Ready, NoCredentials }
+enum class Startup { Checking, Ready, NoCredentials, NeedsLogin }
 
 class Container(context: Context) {
 
@@ -87,7 +92,19 @@ class Container(context: Context) {
 
     val provider: ProviderConfig get() = settings.current
 
-    private val remoteConfig = RemoteConfigClient(http, BuildConfig.REMOTE_CONFIG_URL.trim())
+    /**
+     * The household document this install reads: compiled into a household's own APK, or — in the
+     * general one — whatever [logIn] stamped. On a device that already had the app, that stamp is
+     * the URL its previous APK left behind, which is why updating to the general APK asks nothing.
+     */
+    @Volatile
+    private var householdUrl: String =
+        BuildConfig.REMOTE_CONFIG_URL.trim().ifBlank { linkedHouseholdUrl(appContext).orEmpty() }
+
+    private val remoteConfig = RemoteConfigClient(http) { householdUrl }
+
+    /** Only the general APK has somewhere to log in: a household's own APK knows whose it is. */
+    private val login = HouseholdLogin(http, BuildConfig.LOGIN_URL.trim())
 
     /** Read afresh on every call, so a document adopted mid-session lands on the next request. */
     val client = VodClient(http) { settings.current }
@@ -145,7 +162,7 @@ class Container(context: Context) {
      *
      * Set by [ui.PlayerScreen] itself, the same way it already tells [MainActivity] to lock the
      * orientation — see `setPlaybackOrientation`. [startPolling] reads it to skip
-     * [CatalogRepository.checkMirrorHourly] while it is true: measured directly, that check landing
+     * [CatalogRepository.catchUp] while it is true: measured directly, a catalogue download landing
      * mid-film competed for heap with ExoPlayer's own buffer — generous on purpose, for the
      * catalogue's highest-bitrate remuxes — and tipped a 256 MB-capped device into the GC pressure
      * that `StuckPlayerException` reports as a stall. The poll itself keeps running; only the one
@@ -220,6 +237,11 @@ class Container(context: Context) {
      * halfway through reads as an app breaking.
      */
     fun start(nowMillis: Long) {
+        // The general APK, never logged in: nothing to fetch until somebody says whose this is.
+        if (!remoteConfig.isEnabled && login.isEnabled) {
+            _startup.value = Startup.NeedsLogin
+            return
+        }
         scope.launch {
             val moved = fetchAndApply()
             catalog.adoptProfiles(settings.profiles)
@@ -239,9 +261,29 @@ class Container(context: Context) {
                 progressSync.request()
                 // A catalogue belongs to the account it was fetched with. When that account moves,
                 // the rows on disk are a different shop's stock and the ids in them point at nothing.
-                if (moved && store.hasCatalogue) catalog.refresh(nowMillis) else catalog.refreshIfStale(nowMillis)
+                if (moved && store.hasCatalogue) catalog.refresh(nowMillis) else catalog.catchUp(nowMillis)
             }
         }
+    }
+
+    /**
+     * The general APK's first screen: a household's username and password, traded with the panel
+     * for that household's document URL.
+     *
+     * On success the URL is stamped exactly where a household's own APK stamps its compiled one, so
+     * nothing downstream — the wipe included — can tell the two apart, and startup carries on as it
+     * does on any other launch. There is no way back to the question from inside the app: a device
+     * does not change households.
+     */
+    suspend fun logIn(username: String, password: String): LoginOutcome {
+        val outcome = login.logIn(username, password)
+        if (outcome is LoginOutcome.Success) {
+            withContext(Dispatchers.IO) { linkHousehold(appContext, outcome.url) }
+            householdUrl = outcome.url
+            _startup.value = Startup.Checking
+            start(System.currentTimeMillis())
+        }
+        return outcome
     }
 
     private var pollJob: Job? = null
@@ -254,8 +296,8 @@ class Container(context: Context) {
      * scheduler because it does not have to outlive the app — when the app is gone, this is good
      * for nothing.
      *
-     * Piggybacks the catalogue's own hourly top-up on the same tick — see
-     * [CatalogRepository.checkMirrorHourly]. Not a scheduler of its own for the same reason as the
+     * Piggybacks the catalogue's catch-up on the same tick — see [CatalogRepository.catchUp], which
+     * costs a few bytes when nothing was published. Not a scheduler of its own for the same reason as the
      * document itself: this already runs often enough, and only while it would be seen.
      */
     fun startPolling() {
@@ -265,7 +307,7 @@ class Container(context: Context) {
                 delay(FOREGROUND_POLL_MS)
                 val nowMillis = System.currentTimeMillis()
                 adoptHostedConfig(nowMillis)
-                if (!provider.simple && !isPlaying) catalog.checkMirrorHourly(nowMillis)
+                if (!provider.simple && !isPlaying) catalog.catchUp(nowMillis)
             }
         }
     }

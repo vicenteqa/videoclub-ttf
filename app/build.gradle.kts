@@ -1,3 +1,4 @@
+import java.net.URI
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Properties
@@ -51,6 +52,19 @@ fun flavourOf(casa: String): String = casa
     .joinToString("")
 
 /**
+ * Where the general APK logs in: the panel's own host, at `/videoclub/login`.
+ *
+ * Derived from `panel.url` rather than written down a second time, for the same reason the households
+ * are read rather than listed here. Blank without it, which builds a general APK that has nowhere to
+ * ask — what a fresh checkout or CI builds, and fine for either.
+ */
+val loginUrl: String = localProperties.getProperty("panel.url")?.trim()?.takeIf { it.isNotEmpty() }
+    ?.let { runCatching { URI(it) }.getOrNull() }
+    ?.takeIf { it.scheme == "https" && !it.host.isNullOrEmpty() }
+    ?.let { "https://${it.host}${if (it.port > 0) ":${it.port}" else ""}/videoclub/login" }
+    .orEmpty()
+
+/**
  * La marca de esta compilación, `AAMMDDHHm`, que es a la vez el `versionCode`.
  *
  * Cabe de sobra en el entero con signo que Android exige (`260902146` contra un tope de 2.100
@@ -102,7 +116,10 @@ android {
         // by carrying an APK to a television in another house.
         //
         // The one value that remains lives on the flavours below, because which hosted config to
-        // ask is the single thing two households do not share.
+        // ask is the single thing two households do not share. Empty here, so that every flavour
+        // has both fields and says which of the two it fills.
+        buildConfigField("String", "REMOTE_CONFIG_URL", "\"\"")
+        buildConfigField("String", "LOGIN_URL", "\"\"")
     }
 
     // One flavour per household, differing in exactly one string, and deliberately sharing an
@@ -113,20 +130,27 @@ android {
     // id as an unrelated application, turning every future update into a physical visit to
     // uninstall the old one first.
     //
-    // With no households configured there are no flavours at all, and the plain `assembleRelease`
-    // still works — which is what a fresh checkout, before anybody has run `./sync-casas.sh`, has.
-    if (casas.isNotEmpty()) {
-        flavorDimensions += "casa"
-        productFlavors {
-            casas.forEach { casa ->
-                create(flavourOf(casa)) {
-                    dimension = "casa"
-                    val url = localProp("casa.$casa.remoteConfig.url")
-                    if (url.isBlank()) {
-                        logger.warn("Videoclub: la casa '$casa' no tiene remoteConfig.url — ese APK dirá \"Error de credenciales\".")
-                    }
-                    buildConfigField("String", "REMOTE_CONFIG_URL", "\"$url\"")
+    // `general` is always there: the one APK for every household that is not simple, which asks
+    // the first time whose device it is — see `LoginScreen`. The households listed in
+    // `local.properties` are the ones that still get an APK of their own, which `./sync-casas.sh`
+    // now writes only for simple households.
+    flavorDimensions += "casa"
+    productFlavors {
+        create("general") {
+            dimension = "casa"
+            if (loginUrl.isBlank()) {
+                logger.warn("Videoclub: sin panel.url el APK general no tiene dónde entrar — dirá \"Error de credenciales\".")
+            }
+            buildConfigField("String", "LOGIN_URL", "\"$loginUrl\"")
+        }
+        casas.filter { flavourOf(it) != "general" }.forEach { casa ->
+            create(flavourOf(casa)) {
+                dimension = "casa"
+                val url = localProp("casa.$casa.remoteConfig.url")
+                if (url.isBlank()) {
+                    logger.warn("Videoclub: la casa '$casa' no tiene remoteConfig.url — ese APK dirá \"Error de credenciales\".")
                 }
+                buildConfigField("String", "REMOTE_CONFIG_URL", "\"$url\"")
             }
         }
     }
@@ -150,6 +174,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // `-Pvideoclub.debuggableRelease=true` builds a release that `adb run-as` can read — for
+            // checking a real device's database after an update, without uninstalling what the
+            // release keystore signed. Never for publishing: `publish.sh` does not pass it.
+            isDebuggable = project.findProperty("videoclub.debuggableRelease") == "true"
             // Sideloaded onto a phone and a television, so it must always be installable: fall back
             // to the debug key rather than producing an unsigned artefact. A build without the
             // release keystore still runs, but it cannot update a box holding a release-signed one.

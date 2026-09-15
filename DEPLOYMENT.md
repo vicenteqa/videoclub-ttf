@@ -103,11 +103,16 @@ nothing and wipes nothing, its only purpose is letting a `PackageInstaller` sess
 ### Publishing a release
 
 ```bash
-./publish.sh --casa papa
+./publish.sh --casa vicente
+./publish.sh --casa papa --casa manel
+./publish.sh --todas
 ```
 
-builds that household's flavour, uploads it to the same secret directory that already serves its
-`provider.json`, and publishes it: one step, no separate button to press afterwards. The household's
+builds what those households need — `general` for any that is not simple, its own flavour for one
+that is — once each, uploads each APK once to the same secret directory that already serves a
+household's `provider.json` (the other households receiving it get a hard link in theirs), and
+publishes it: one step, no separate button to press afterwards. Every household named is checked
+against the panel before anything is built. The household's
 document is updated as soon as the script finishes — its next poll will see the new release — but
 nothing installs on its own from that alone: the device itself decides when, via the icon beside
 **TV** or, in simple mode, by holding OK over the channel list. That gesture is what stops a build

@@ -51,11 +51,10 @@ class CatalogSync(
 ) {
 
     /**
-     * @param mirrorOnly True for the lightweight hourly top-up — see [CatalogRepository.checkMirrorHourly]
-     *   — which must never fall back to asking the supplier directly just because an hour happened
-     *   to pass: with nothing new from the mirror, it does nothing at all, quietly, and leaves the
-     *   supplier alone until the next once-a-day refresh. `false` is today's behaviour, unchanged:
-     *   the mirror first, the supplier for whatever it does not have.
+     * @param mirrorOnly True for a quiet download nobody asked for — see [CatalogRepository.catchUp] —
+     *   which must never fall back to asking the supplier directly just because the mirror failed
+     *   once: with nothing from the mirror, it does nothing at all, quietly, and leaves the supplier
+     *   alone. `false` is the mirror first and the supplier for whatever it does not have.
      */
     suspend fun run(
         nowMillis: Long,
@@ -109,6 +108,9 @@ class CatalogSync(
 
                         session.transaction {
                             fetched.forEach { (_, id, listings) ->
+                                // Only for a category that arrived: one that did not keeps the rows it
+                                // had, exactly as its links do until the next complete run sweeps.
+                                if (listings != null) session.clearListingRows(id)
                                 listings.orEmpty().forEachIndexed { index, listing ->
                                     val titleId = session.putListing(kind, id, listing, index)
                                     // Series arrive with plot, cast and backdrop already attached.
@@ -127,8 +129,13 @@ class CatalogSync(
                     session.sweep()
                     store.markSynced(nowMillis)
                     (mirrorFetch as? MirrorFetch.Updated)?.etag?.let(store::markMirrorEtag)
+                    // The mirror's version, or 0 for a catalogue the supplier answered: changes are
+                    // written against the mirror, and only a catalogue that is the mirror takes them.
+                    store.markCatalogVersion((mirrorFetch as? MirrorFetch.Updated)?.version ?: 0L)
                 } else {
                     session.close()
+                    // Part of it is now newer than whatever version was recorded, so none is.
+                    store.markCatalogVersion(0L)
                     Log.w(TAG, "Sync finished with gaps; keeping every existing row")
                 }
                 complete

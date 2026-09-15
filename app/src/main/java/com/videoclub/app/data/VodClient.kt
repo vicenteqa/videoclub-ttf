@@ -96,6 +96,7 @@ class VodClient(
     private fun parseMirror(response: Response): MirrorFetch {
         val body = response.body ?: return MirrorFetch.Unavailable
         var generatedAtSeconds = 0L
+        var version = 0L
         val categoriesByKind = mutableMapOf<Kind, MutableList<RemoteCategory>>()
         val listingsByKey = mutableMapOf<String, String>()
 
@@ -103,7 +104,10 @@ class VodClient(
             if (line.isBlank()) return@forEachLine
             val row = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
             when (row.optString("tipo")) {
-                "meta" -> generatedAtSeconds = row.optLong("generado_en", 0L)
+                "meta" -> {
+                    generatedAtSeconds = row.optLong("generado_en", 0L)
+                    version = row.optLong("version", 0L)
+                }
                 "categorias" -> {
                     val kind = mirrorKind(row.optString("kind")) ?: return@forEachLine
                     val items = row.optJSONArray("items")?.toString() ?: "[]"
@@ -127,8 +131,43 @@ class VodClient(
             Log.w(TAG, "Mirror is too old or unreadable (generated_at=$generatedAtSeconds)")
             return MirrorFetch.Unavailable
         }
-        Log.i(TAG, "Mirror fresh, ${ageSeconds}s old, ${listingsByKey.size} categories")
-        return MirrorFetch.Updated(CatalogMirror(categoriesByKind, listingsByKey), response.header("ETag"))
+        Log.i(TAG, "Mirror fresh, ${ageSeconds}s old, version $version, ${listingsByKey.size} categories")
+        return MirrorFetch.Updated(
+            CatalogMirror(categoriesByKind, listingsByKey), response.header("ETag"), version
+        )
+    }
+
+    /**
+     * The mirror's index of changes — see [CatalogIndex] — or null when there is none to be had.
+     *
+     * A few bytes, asked on every foreground poll: it is how a catalogue learns that something was
+     * published without downloading anything else.
+     */
+    suspend fun catalogIndex(): CatalogIndex? = withContext(Dispatchers.IO) {
+        val url = deltaUrl("index.json") ?: return@withContext null
+        runCatching { fetchText(url)?.let(CatalogChangesJson::index) }
+            .onFailure { error -> Log.i(TAG, "No catalogue index this time (${error.javaClass.simpleName})") }
+            .getOrNull()
+    }
+
+    /** One changes file, or null when it could not be fetched or read as a whole. */
+    suspend fun catalogChanges(version: Long): CatalogChanges? = withContext(Dispatchers.IO) {
+        val url = deltaUrl("changes/$version.json") ?: return@withContext null
+        runCatching { fetchText(url)?.let(CatalogChangesJson::changes) }
+            .onFailure { error -> Log.w(TAG, "Changes $version did not arrive (${error.javaClass.simpleName})") }
+            .getOrNull()
+    }
+
+    /** Beside the mirror, wherever the mirror is: `…/_catalogo/vod.json` → `…/_catalogo/delta/<path>`. */
+    private fun deltaUrl(path: String): String? =
+        config.catalogMirrorUrl.takeIf { it.isNotEmpty() }?.let { it.substringBeforeLast('/') + "/delta/" + path }
+
+    /** A small file from our own VPS: its body, or null for anything but a success. */
+    private fun fetchText(url: String): String? {
+        val request = Request.Builder().url(url).header("User-Agent", config.userAgent).build()
+        return http.newCall(request).execute().use { response ->
+            if (response.isSuccessful) response.body?.string() else null
+        }
     }
 
     /** Plot, cast, runtime and the codec report, none of which appear in a film listing. */
@@ -285,8 +324,12 @@ class VodClient(
  * once-a-day refresh treats [Unavailable] as its cue to fall back to the supplier directly.
  */
 sealed class MirrorFetch {
-    /** A fresh copy, and the marker to send back next time so the server can say "still this one". */
-    data class Updated(val mirror: CatalogMirror, val etag: String?) : MirrorFetch()
+    /**
+     * A fresh copy, the marker to send back next time so the server can say "still this one", and
+     * the mirror's version — 0 for a mirror written before versions existed — which is what changes
+     * are later applied on top of.
+     */
+    data class Updated(val mirror: CatalogMirror, val etag: String?, val version: Long = 0L) : MirrorFetch()
 
     /** The server confirmed the [CatalogMirror] a caller already has is still the current one. */
     data object Unchanged : MirrorFetch()
@@ -296,7 +339,7 @@ sealed class MirrorFetch {
 }
 
 /** `"vod"`/`"series"` as `catalogo-maestro.py` writes them, or null for anything else. */
-private fun mirrorKind(raw: String): Kind? = when (raw) {
+internal fun mirrorKind(raw: String): Kind? = when (raw) {
     "vod" -> Kind.Movie
     "series" -> Kind.Series
     else -> null

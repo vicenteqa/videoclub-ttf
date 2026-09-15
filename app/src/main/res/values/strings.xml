@@ -96,4 +96,13 @@
     <string name="live_exit_title">¿Apagar la tele?</string>
     <string name="live_exit_confirm">Sí, apagar</string>
     <string name="live_exit_cancel">No, seguir viendo</string>
+    <string name="login_title">¿De qué casa es este aparato?</string>
+    <string name="login_note">Escribe el usuario y la contraseña de tu casa. Sólo se pide esta vez.</string>
+    <string name="login_username">Usuario</string>
+    <string name="login_password">Contraseña</string>
+    <string name="login_submit">Entrar</string>
+    <string name="login_busy">Entrando…</string>
+    <string name="login_refused">Ese usuario o esa contraseña no son correctos.</string>
+    <string name="login_too_many">Demasiados intentos. Vuelve a probar dentro de %1$d min.</string>
+    <string name="login_unreachable">No hay conexión con el servidor. Comprueba la red y vuelve a intentarlo.</string>
 </resources>

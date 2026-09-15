@@ -56,6 +56,22 @@ class CatalogDatabase(context: Context) :
         if (oldVersion < 4) db.execSQL(CREATE_TRACK)
         if (oldVersion < 5) addSyncColumns(db)
         if (oldVersion < 6) addListSyncColumns(db)
+        if (oldVersion < 7) addListingTable(db)
+    }
+
+    /**
+     * Version 7: [TABLE_LISTING], which supplier id sits where in each category.
+     *
+     * It arrives empty, and a catalogue that does not know what it holds cannot take changes on top.
+     * So the mirror's ETag and version are forgotten here: the first check after the update downloads
+     * the mirror whole — quietly, the catalogue on screen stays — instead of being answered `304` and
+     * left unable to catch up for ever. Nothing the user wrote is touched.
+     */
+    private fun addListingTable(db: SQLiteDatabase) {
+        db.execSQL(CREATE_LISTING)
+        db.execSQL(CREATE_INDEX_LISTING_REMOTE)
+        // The keys `CatalogStore` keeps them under.
+        db.execSQL("DELETE FROM $TABLE_META WHERE key IN ('mirror_etag', 'catalog_version')")
     }
 
     /**
@@ -152,7 +168,8 @@ class CatalogDatabase(context: Context) :
         // 4: `track`, the audio and the subtitles each person last watched a title in.
         // 5: `dirty` and `deleted` on `progress`, so progress travels between devices.
         // 6: the same on `watchlist`, plus `updated_at`, so "My list" travels the same way.
-        const val DATABASE_VERSION = 6
+        // 7: `listing`, so the mirror's changes can be applied without downloading it whole.
+        const val DATABASE_VERSION = 7
 
         const val TABLE_TITLE = "title"
         const val TABLE_SOURCE = "source"
@@ -163,8 +180,34 @@ class CatalogDatabase(context: Context) :
         const val TABLE_WATCHLIST = "watchlist"
         const val TABLE_META = "meta"
         const val TABLE_TRACK = "track"
+        const val TABLE_LISTING = "listing"
 
         const val INDEX_PROGRESS_RECENT = "idx_progress_recent"
+
+        /**
+         * Every supplier row of every category: where it sits, and which work it was filed under.
+         *
+         * [TABLE_TITLE_CATEGORY] says which *works* a category shows; this says which *encodes* it
+         * lists, and applying a changes file needs exactly that. When an id leaves a category, only
+         * this can tell whether it is still listed somewhere else or has gone from the supplier — which
+         * decides whether its [TABLE_SOURCE] row goes too, and with its last source, the work.
+         *
+         * By position rather than by id, because the supplier does list the same encode twice in one
+         * category now and then, and the full download keeps both.
+         */
+        private val CREATE_LISTING = """
+            CREATE TABLE $TABLE_LISTING (
+                category_id INTEGER NOT NULL,
+                position    INTEGER NOT NULL,
+                kind        INTEGER NOT NULL,
+                remote_id   INTEGER NOT NULL,
+                title_id    INTEGER NOT NULL,
+                PRIMARY KEY (category_id, position)
+            )
+            """
+
+        private val CREATE_INDEX_LISTING_REMOTE =
+            "CREATE INDEX idx_listing_remote ON $TABLE_LISTING (kind, remote_id)"
 
         /**
          * The user's own rows. `episode_id` is 0 for a film.
@@ -336,7 +379,9 @@ class CatalogDatabase(context: Context) :
             CREATE_INDEX_PROGRESS_RECENT,
             CREATE_WATCHLIST,
             CREATE_META,
-            CREATE_TRACK
+            CREATE_TRACK,
+            CREATE_LISTING,
+            CREATE_INDEX_LISTING_REMOTE
         )
     }
 }

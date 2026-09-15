@@ -42,19 +42,27 @@ note() { printf '\033[36m→ %s\033[0m\n' "$*"; }
 
 prop() { sed -n "s/^$1=//p" local.properties | tail -1; }
 
-# Las casas configuradas, tal cual las dejó ./sync-casas.sh.
-mapfile -t CASAS < <(sed -n 's/^casa\.\([^.]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
+# Las casas simples, tal cual las dejó ./sync-casas.sh: las únicas con APK propio. Las demás llevan el
+# general, y aquí se conocen por el televisor que tienen declarado.
+mapfile -t SIMPLES < <(sed -n 's/^casa\.\([^.]*\)\.remoteConfig\.url=.*/\1/p' local.properties)
+mapfile -t CASAS < <({
+    sed -n 's/^casa\.\([^.]*\)\.remoteConfig\.url=.*/\1/p' local.properties
+    sed -n 's/^casa\.\([^.]*\)\.tv\.adb\.host=.*/\1/p' local.properties
+} | sort -u)
 
 if [[ ${#CASAS[@]} -gt 0 ]]; then
     if [[ -z "$CASA" ]]; then
         [[ ${#CASAS[@]} -eq 1 ]] && CASA="${CASAS[0]}" || die "Hay varias casas. Elige una:
 $(printf '    ./deploy.sh --casa %s\n' "${CASAS[@]}")"
     fi
-    printf '%s\n' "${CASAS[@]}" | grep -qx "$CASA" || die "No conozco la casa '$CASA'. Hay:
+    printf '%s\n' "${CASAS[@]}" | grep -qx -- "$CASA" || die "No conozco la casa '$CASA'. Hay:
 $(printf '    %s\n' "${CASAS[@]}")
 
-Si acabas de crearla en el panel: ./sync-casas.sh"
+Una casa simple sale de ./sync-casas.sh; cualquier otra, de su casa.<id>.tv.adb.host."
 fi
+
+ES_SIMPLE=0
+[[ -n "$CASA" ]] && printf '%s\n' "${SIMPLES[@]+"${SIMPLES[@]}"}" | grep -qx -- "$CASA" && ES_SIMPLE=1
 
 APK="build-out/videoclub${CASA:+-$CASA}.apk"
 
@@ -141,8 +149,8 @@ fi
 # --- build ------------------------------------------------------------------
 
 if [[ "${1:-}" != "--no-build" ]]; then
-    if [[ -n "$CASA" ]]; then
-        note "Compilando release para la casa '$CASA'"
+    if [[ $ES_SIMPLE -eq 1 ]]; then
+        note "Compilando release de la casa simple '$CASA'"
         # Mismo criterio que `flavourOf()` en app/build.gradle.kts y que publish.sh: un slug con
         # guiones se convierte en un nombre de flavour de Gradle en camelCase, no en un slug con solo
         # su primera letra en mayúscula — eso deja tareas que Gradle no reconoce en cuanto la casa
@@ -161,9 +169,9 @@ if [[ "${1:-}" != "--no-build" ]]; then
         ./gradlew --quiet ":app:assemble${CAP}Release"
         SRC="app/build/outputs/apk/$FLAVOUR/release/app-$FLAVOUR-release.apk"
     else
-        note "Compilando release"
-        ./gradlew --quiet :app:assembleRelease
-        SRC="app/build/outputs/apk/release/app-release.apk"
+        note "Compilando el release general${CASA:+ (casa: $CASA)}"
+        ./gradlew --quiet :app:assembleGeneralRelease
+        SRC="app/build/outputs/apk/general/release/app-general-release.apk"
     fi
     mkdir -p build-out
     cp "$SRC" "$APK"
