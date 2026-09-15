@@ -15,7 +15,7 @@
 # User-Agent— vive en el documento alojado de cada casa, en el VPS, y en ningún
 # otro sitio. Por eso cambiar una contraseña es editar un fichero en un servidor
 # y no compilar e instalar un APK en el salón de otra persona.
-# Ver server/README.md.
+# Ver el README de videoclub-server.
 
 # --- Firma de release --------------------------------------------------------
 # Se genera una vez:
@@ -55,7 +55,7 @@
 # --- El VPS, para ./publish.sh ------------------------------------------------
 # Adónde subir un release por scp: el mismo directorio secreto que ya sirve el
 # provider.json de esa casa, así que no hace falta ningún puerto nuevo ni tocar
-# nginx. Ver server/README.md.
+# nginx. Ver el README de videoclub-server.
 #
 # vps.ssh=usuario@tu-vps.example.org
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Builds a release, uploads it to that household's own secret directory on the VPS, and publishes
-# it: one step, start to finish. See DEPLOYMENT.md and server/README.md for the whole mechanism
-# this feeds.
+# it: one step, start to finish. See DEPLOYMENT.md and the videoclub-server README for the whole
+# mechanism this feeds.
 #
 #   ./publish.sh --casa papa
 #

@@ -6,7 +6,7 @@ There are two ways to change what a household does, and they cover different thi
 on, a channel needs sending. These are made from the panel and the app picks them up on its own: at
 launch, when the television is switched on, and every two minutes while it is open. **Nothing needs
 building and nobody needs to touch the device**, and this is what you will be doing 90% of the time.
-See [server/README.md](server/README.md).
+See the README of [videoclub-server](https://github.com/vicenteqa/videoclub-server).
 
 **Code changes** — a player bug, a new channel in the curation, a new screen. These need an APK, and
 that is what this file documents.
@@ -83,7 +83,7 @@ From then on every update is direct, and forever — **as long as you still have
 `./deploy.sh` needs this laptop, a Tailscale connection, and somebody to run a command — every
 time. A box made **device owner** does not: the panel publishes a release and the box fetches,
 verifies and installs it on its own, with the screen off, and nobody has to do anything at all. See
-`apk` in [server/README.md](server/README.md) for the mechanism and `Updater.kt` for why it can be
+`apk` in the README of [videoclub-server](https://github.com/vicenteqa/videoclub-server) for the mechanism and `Updater.kt` for why it can be
 silent at all.
 
 ### One more in-person step, added to the visit above

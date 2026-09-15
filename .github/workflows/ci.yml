@@ -13,7 +13,6 @@ on:
   push:
     paths-ignore:
       - "**/*.md"
-      - "server/**"
   workflow_dispatch: {}
 
 permissions:

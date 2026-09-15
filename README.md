@@ -32,12 +32,14 @@ without having to visit any of those houses.
 
 ```
 app/                 The Android application (Kotlin + Compose, media3/ExoPlayer)
-server/admin/        The panel: an HTTP server written in the Python standard library
-server/setup-vps.sh  One-time preparation of the VPS
 tests/e2e/           Tests against real devices, over ADB
 deploy.sh            Build and install onto one household's television
+publish.sh           Build one household's release and publish it on the VPS
 sync-casas.sh        Pull the list of households from the panel into local.properties
 ```
+
+The panel and the VPS setup live in their own repository,
+[videoclub-server](https://github.com/vicenteqa/videoclub-server) (private).
 
 ### The app
 
@@ -60,7 +62,8 @@ remotely.
 
 It is not a modern web application: it is one Python file using only the standard library, serving
 HTML behind nginx. That is deliberate — the VPS has other things running on it, and this was not
-going to add an ecosystem to maintain.
+going to add an ecosystem to maintain. Its code lives in
+[videoclub-server](https://github.com/vicenteqa/videoclub-server).
 
 ## The idea holding it all up
 
@@ -92,7 +95,8 @@ cp local.properties.example local.properties   # then fill it in
 You need **JDK 17** (the Android plugin rejects newer ones) and the Android SDK.
 
 To install onto a television, see [DEPLOYMENT.md](DEPLOYMENT.md).
-For the VPS, the hosted document and the panel, see [server/README.md](server/README.md).
+For the VPS, the hosted document and the panel, see
+[videoclub-server](https://github.com/vicenteqa/videoclub-server).
 
 ## Signing
 
