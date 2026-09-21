@@ -13,6 +13,7 @@
     <string name="football_other">Otros partidos</string>
     <string name="football_empty">Todavía no hay partidos.</string>
     <string name="install_update">Instalar actualización</string>
+    <string name="update_hint">Actualización disponible · mantén pulsado para instalar</string>
 
     <string name="row_continue">Seguir viendo</string>
     <string name="row_mylist">Mi lista</string>

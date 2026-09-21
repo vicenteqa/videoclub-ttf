@@ -53,7 +53,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.delay
 import coil3.compose.AsyncImage
 import com.videoclub.app.R
 import com.videoclub.app.data.InProgress
@@ -673,22 +678,68 @@ private fun TabChip(
 @Composable
 fun UpdateChip(onInstall: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.install_update)
-    Pill(
-        filled = false,
-        onClick = {},
-        onLongClick = onInstall,
-        modifier = modifier,
-        horizontalPadding = 12.dp,
-        tint = VideoclubColors.Update
-    ) { foreground ->
-        Icon(
-            imageVector = UpdateIcon,
-            contentDescription = label,
-            tint = foreground,
-            modifier = Modifier.size(22.dp)
+    var focused by remember { mutableStateOf(false) }
+    // A tap, which installs nothing, says instead what would: see the bubble below.
+    var tapped by remember { mutableIntStateOf(0) }
+    var tapHint by remember { mutableStateOf(false) }
+    LaunchedEffect(tapped) {
+        if (tapped == 0) return@LaunchedEffect
+        tapHint = true
+        delay(UPDATE_HINT_MS)
+        tapHint = false
+    }
+
+    Box(modifier = modifier) {
+        Pill(
+            filled = false,
+            onClick = { tapped += 1 },
+            onLongClick = onInstall,
+            modifier = Modifier.onFocusChanged { focused = it.isFocused },
+            horizontalPadding = 12.dp,
+            tint = VideoclubColors.Update
+        ) { foreground ->
+            Icon(
+                imageVector = UpdateIcon,
+                contentDescription = label,
+                tint = foreground,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        if (focused || tapHint) UpdateHint()
+    }
+}
+
+/**
+ * What the yellow arrow is and how to use it, under it, for as long as the cursor is on it — or for
+ * a few seconds after a tap that did nothing, which is exactly when somebody needs telling.
+ *
+ * A popup rather than something laid out in the strip, so that it can hang below the strip without
+ * pushing anything: the strip stays exactly as tall as it always is. Not focusable, so the remote
+ * stays on the arrow and holding OK still installs.
+ */
+@Composable
+private fun UpdateHint() {
+    val skin = LocalSkin.current
+    val below = with(LocalDensity.current) { (skin.chipSize + 8.dp).roundToPx() }
+    Popup(
+        alignment = Alignment.TopCenter,
+        offset = IntOffset(0, below),
+        properties = PopupProperties(focusable = false)
+    ) {
+        Label(
+            text = stringResource(R.string.update_hint),
+            style = skin.caption,
+            color = VideoclubColors.Surface,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(VideoclubColors.Update)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
 }
+
+private const val UPDATE_HINT_MS = 3_000L
 
 /**
  * The one chip shape in the app, and the three states it has.
