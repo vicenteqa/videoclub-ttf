@@ -22,6 +22,13 @@ class EpgRepository(
     private val scope: CoroutineScope
 ) {
 
+    /**
+     * The title the guide has on [channel] right now, from what is already held — or null, when
+     * the guide has not arrived or has run out. What the panel is told alongside the channel.
+     */
+    fun showing(channel: Channel, nowMillis: Long = System.currentTimeMillis()): String? =
+        guide.value[channel.feeds.first().streamId]?.nowAndNext(nowMillis)?.first?.title
+
     private val _guide = MutableStateFlow<Map<Int, List<Programme>>>(emptyMap())
     val guide: StateFlow<Map<Int, List<Programme>>> = _guide.asStateFlow()
 

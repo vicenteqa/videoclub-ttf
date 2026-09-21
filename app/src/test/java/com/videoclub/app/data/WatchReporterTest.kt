@@ -89,6 +89,39 @@ class WatchReporterTest {
     }
 
     @Test
+    fun `tuning is said at once and marked provisional`() {
+        reporter.tuning("La 1", WatchReporter.Kind.Channel, "Telediario 2")
+
+        val body = settle().single()
+        assertThat(body.getBoolean("provisional")).isTrue()
+        assertThat(body.getString("programa")).isEqualTo("Telediario 2")
+    }
+
+    @Test
+    fun `tuning the same channel twice says it once`() {
+        reporter.tuning("La 1", WatchReporter.Kind.Channel)
+        reporter.tuning("La 1", WatchReporter.Kind.Channel)
+
+        assertThat(settle()).hasSize(1)
+    }
+
+    @Test
+    fun `the settled report is never marked provisional`() {
+        reporter.tuning("La 1", WatchReporter.Kind.Channel)
+        reporter.settledOn("La 1", WatchReporter.Kind.Channel)
+
+        assertThat(settle().map { it.optBoolean("provisional") }).containsExactly(true, false).inOrder()
+    }
+
+    @Test
+    fun `what has already settled is not announced again as tuning`() {
+        reporter.settledOn("La 1", WatchReporter.Kind.Channel)
+        reporter.tuning("La 1", WatchReporter.Kind.Channel)
+
+        assertThat(settle()).hasSize(1)
+    }
+
+    @Test
     fun `nothing about programmes once playback stopped`() {
         reporter.settledOn("La 1", WatchReporter.Kind.Channel, "Telediario 2")
         reporter.stopped()

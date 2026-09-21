@@ -714,18 +714,20 @@ class MainViewModel(private val container: Container) : ViewModel() {
         if (key != settledKey) {
             settledKey = key
             settledFromMillis = positionMillis
+            // Said straight away, marked provisional, so the panel knows it is this app from the
+            // first seconds: see [WatchReporter.tuning].
+            container.reporter.tuning(request.heading, kindOf(request))
             return
         }
         if (positionMillis - settledFromMillis < SETTLE_MS) return
         Log.i(TAG, "On for a while: reporting «${request.heading}»")
-        container.reporter.settledOn(
-            request.heading,
-            // An episode always carries its identifier; a film goes with zero. It is the same
-            // distinction the saved progress uses, so there are not two rules that can drift apart
-            // over time.
-            if (request.episodeId != 0) WatchReporter.Kind.Series else WatchReporter.Kind.Film
-        )
+        container.reporter.settledOn(request.heading, kindOf(request))
     }
+
+    // An episode always carries its identifier; a film goes with zero. It is the same distinction
+    // the saved progress uses, so there are not two rules that can drift apart over time.
+    private fun kindOf(request: PlayRequest) =
+        if (request.episodeId != 0) WatchReporter.Kind.Series else WatchReporter.Kind.Film
 
     /** What is being counted as on, and the position it started counting from. */
     private var settledKey: String? = null

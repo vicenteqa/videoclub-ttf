@@ -128,14 +128,13 @@ fun LiveScreen(
             client = container.client,
             parentScope = container.scope,
             profile = profile,
+            // The guide as it stands at the moment either fires, read from the repository rather
+            // than from this composition: the player keeps these lambdas for as long as it lives.
             onSettled = { channel ->
-                // The guide as it stands at this moment, read from the repository rather than from
-                // this composition: the player keeps this lambda for as long as it lives.
-                val showing = container.epg.guide.value[channel.feeds.first().streamId]
-                    ?.nowAndNext(System.currentTimeMillis())
-                    ?.first
-                    ?.title
-                container.reporter.settledOn(channel.label, WatchReporter.Kind.Channel, showing)
+                container.reporter.settledOn(channel.label, WatchReporter.Kind.Channel, container.epg.showing(channel))
+            },
+            onTuned = { channel ->
+                container.reporter.tuning(channel.label, WatchReporter.Kind.Channel, container.epg.showing(channel))
             }
         )
     }

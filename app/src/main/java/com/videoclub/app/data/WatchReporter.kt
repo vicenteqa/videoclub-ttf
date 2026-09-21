@@ -60,6 +60,9 @@ class WatchReporter(
     /** The channel that has settled, if one has: the only one whose programme changes are news. */
     private var settledChannel: String? = null
 
+    /** The last thing announced by [tuning], so a feed falling back to the next does not re-send. */
+    private var tuned: String? = null
+
     /**
      * Called when something has been playing long enough to count as what somebody is watching.
      *
@@ -83,17 +86,44 @@ class WatchReporter(
         val key = "${kind.wire}:$trimmed:${showing.orEmpty()}"
         if (key == reported) return
         reported = key
+        send(config, trimmed, kind, showing, provisional = false)
+    }
 
+    /**
+     * Something has just started playing, before it has been on long enough to count — see
+     * [settledOn], which is still what counts.
+     *
+     * The supplier shows the connection the moment the stream opens, and a panel with nothing from
+     * the app said "Cliente desconocido" about a box that was plainly this app, for as long as the
+     * settle took. This says straight away that it is Videoclub and what it has on, marked
+     * `provisional` so the panel shows it without writing it into the household's history: that
+     * still only counts what was actually watched. Sent once per title, and never again for what
+     * has already settled.
+     */
+    fun tuning(label: String, kind: Kind, programme: String? = null) {
+        val config = provider()
+        if (!config.reportsWhatIsOn) return
+        val trimmed = label.trim()
+        if (trimmed.isEmpty()) return
+        val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
+        val key = "${kind.wire}:$trimmed"
+        if (key == tuned || reported?.startsWith("$key:") == true) return
+        tuned = key
+        send(config, trimmed, kind, showing, provisional = true)
+    }
+
+    private fun send(config: ProviderConfig, label: String, kind: Kind, showing: String?, provisional: Boolean) {
         val body = JSONObject().apply {
             // `canal` for the field name, whatever the kind: the panel has spoken that word since
             // it only knew about live television, and renaming it would break every box already
             // installed for the sake of a tidier noun.
-            put("canal", trimmed)
+            put("canal", label)
             put("tipo", kind.wire)
             put("desde", nowMillis() / 1000)
             // What the guide has on, for a channel. Absent rather than empty when there is no guide:
             // older panels ignore the field, and "no guide" is not a programme.
             if (showing != null) put("programa", showing.take(PROGRAMME_MAX))
+            if (provisional) put("provisional", true)
         }.toString()
 
         // On IO explicitly. The scope this is handed is the container's, which runs on
@@ -112,7 +142,7 @@ class WatchReporter(
                         // Success is said out loud too. Without this, "nothing shows up in the
                         // panel" cannot be separated from "it never got as far as trying", which is
                         // exactly where an afternoon once went.
-                        Log.i(TAG, "Reported to the panel: ${kind.wire}")
+                        Log.i(TAG, "Reported to the panel: ${kind.wire}${if (provisional) " (provisional)" else ""}")
                     } else {
                         Log.w(TAG, "The panel refused the report (${response.code})")
                     }
@@ -144,6 +174,7 @@ class WatchReporter(
     fun forget() {
         reported = null
         settledChannel = null
+        tuned = null
     }
 
     /**
@@ -160,6 +191,7 @@ class WatchReporter(
     fun stopped() {
         reported = null
         settledChannel = null
+        tuned = null
         val config = provider()
         if (!config.reportsWhatIsOn) return
 

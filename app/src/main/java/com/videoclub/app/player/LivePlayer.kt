@@ -113,7 +113,13 @@ class LivePlayer(
      * not go through that — there is no position to save in a live stream — so watching television
      * left the panel blank. This is the same thing SimpleTV did with its channels.
      */
-    private val onSettled: ((Channel) -> Unit)? = null
+    private val onSettled: ((Channel) -> Unit)? = null,
+    /**
+     * Fires the moment a channel starts playing, but only until the first one has settled after
+     * the television came on — see [firstSettle]. Zapping later says nothing; this is only for
+     * the seconds when the panel would otherwise have nothing from the app at all.
+     */
+    private val onTuned: ((Channel) -> Unit)? = null
 ) {
 
     /**
@@ -166,6 +172,14 @@ class LivePlayer(
 
     /** Which channel [settleJob] is counting for, so that a rebuffer does not restart its clock. */
     private var settledLabel: String? = null
+
+    /**
+     * Whether nothing has settled since the television came on — the app opened, or the screen came
+     * back. That first channel is not zapping, it is where the set is switched on, and waiting the
+     * full [SETTLE_MS] for it left the panel saying "Cliente desconocido" for three quarters of a
+     * minute about a box that was plainly ours. See [FIRST_SETTLE_MS].
+     */
+    private var firstSettle = true
     private var pictureJob: Job? = null
 
     /** Set by [pause], so that [resume] knows the difference between coming back and starting up. */
@@ -321,6 +335,8 @@ class LivePlayer(
     fun pause() {
         if (channel == null) return
         stoppedInBackground = true
+        // Coming back is the television coming on again: the next channel is the first one.
+        firstSettle = true
         recoveryJob?.cancel()
         cancelStallWatchdog()
         cancelPictureWatchdog()
@@ -363,10 +379,13 @@ class LivePlayer(
     private fun startSettleTimer(channel: Channel) {
         val listener = onSettled ?: return
         if (settleJob?.isActive == true && settledLabel == channel.label) return
+        if (firstSettle) onTuned?.invoke(channel)
         settledLabel = channel.label
         settleJob?.cancel()
+        val wait = if (firstSettle) FIRST_SETTLE_MS else SETTLE_MS
         settleJob = scope.launch {
-            delay(SETTLE_MS)
+            delay(wait)
+            firstSettle = false
             listener(channel)
         }
     }
@@ -575,6 +594,13 @@ class LivePlayer(
          * channel somebody stopped on from the eleven they passed through to get there.
          */
         const val SETTLE_MS = 45_000L
+
+        /**
+         * The same, for the first channel after the television comes on: long enough that a
+         * channel skipped straight past on the way in does not count, short enough that the panel
+         * names the channel almost as soon as the supplier shows the connection.
+         */
+        const val FIRST_SETTLE_MS = 8_000L
 
         /**
          * Deep enough to ride out the drop-outs a domestic line hands a live TS stream, shallow
