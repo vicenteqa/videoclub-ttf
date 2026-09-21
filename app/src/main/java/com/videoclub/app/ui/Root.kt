@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.videoclub.app.Container
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import com.videoclub.app.Startup
 import com.videoclub.app.data.DeviceProfile
 import com.videoclub.app.data.Profile
+import com.videoclub.app.data.placeOf
 
 /**
  * The whole app, one screen at a time.
@@ -179,12 +181,13 @@ private fun VideoclubScreen(
     when (val current = screen) {
         // The three screens that keep the strip: browsing, a shelf, and a film. Whatever is under
         // it fills what is left, which is what `weight` says here.
-        is Screen.Browse, is Screen.Grid, is Screen.Detail -> Column(
+        is Screen.Browse, is Screen.Grid, is Screen.Competition, is Screen.Detail -> Column(
             modifier = inset.fillMaxSize().background(VideoclubColors.Surface)
         ) {
             val tab by viewModel.tab.collectAsStateWithLifecycle()
             val syncState by viewModel.syncState.collectAsStateWithLifecycle()
             val updateReady by viewModel.updateReady.collectAsStateWithLifecycle()
+            val football by viewModel.football.collectAsStateWithLifecycle()
 
             TopStrip(
                 tab = tab,
@@ -195,6 +198,7 @@ private fun VideoclubScreen(
                 onSwitchViewer = viewModel::switchViewer,
                 onRetry = viewModel::retrySync,
                 updateReady = updateReady,
+                showFootball = football.isNotEmpty(),
                 onInstallUpdate = viewModel::installUpdate,
                 autoFocus = viewModel.deviceProfile == DeviceProfile.Tv && current is Screen.Browse
             )
@@ -220,8 +224,27 @@ private fun VideoclubScreen(
                         },
                         onForgetEntry = viewModel::askForget,
                         onOpenRow = viewModel::openRow,
+                        football = football,
+                        onOpenTitleId = { viewModel.openTitle(it) },
+                        onOpenCompetition = viewModel::openCompetition,
                         modifier = Modifier.weight(1f)
                     )
+                }
+
+                is Screen.Competition -> {
+                    val season = football.firstOrNull { it.id == current.id }
+                    if (season == null) {
+                        EmptyMessage(
+                            text = stringResource(R.string.football_empty),
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        CompetitionScreen(
+                            season = season,
+                            onOpenTitle = { viewModel.openTitle(it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 is Screen.Grid -> {
@@ -251,6 +274,9 @@ private fun VideoclubScreen(
                             onPlayEpisode = { viewModel.playEpisode(it) },
                             onSelectSource = viewModel::selectSource,
                             onToggleWatchlist = viewModel::toggleWatchlist,
+                            place = remember(football, detail.title.id) {
+                                football.placeOf(detail.title.id)
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }

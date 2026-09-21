@@ -659,18 +659,24 @@ private fun TabChip(
 }
 
 /**
- * A newer version of the app, already downloaded: pressing it opens Android's install prompt.
+ * A newer version of the app, already downloaded: holding it opens Android's install prompt.
  *
  * The same pill as the chips beside it, so the remote reaches it like any other, but yellow — see
  * [VideoclubColors.Update]. It only exists while there is something to install, which is what keeps
  * it from being one more permanent thing in the strip.
+ *
+ * Held, not pressed. It sits right beside `TV`, the chip pressed most often, and a tap that lands
+ * one chip too far should not put an install prompt in front of somebody who wanted the news. A
+ * plain press does nothing at all; holding it — a finger, or OK on the remote — is the same
+ * "what else can this do" gesture as everywhere else in the app.
  */
 @Composable
-fun UpdateChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun UpdateChip(onInstall: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.install_update)
     Pill(
         filled = false,
-        onClick = onClick,
+        onClick = {},
+        onLongClick = onInstall,
         modifier = modifier,
         horizontalPadding = 12.dp,
         tint = VideoclubColors.Update

@@ -4,6 +4,7 @@ import android.content.Context
 import com.videoclub.app.data.CatalogRepository
 import com.videoclub.app.data.CatalogStore
 import com.videoclub.app.data.CatalogSync
+import com.videoclub.app.data.FootballRepository
 import com.videoclub.app.data.ChannelRepository
 import com.videoclub.app.data.ChannelStore
 import com.videoclub.app.data.EpgRepository
@@ -109,6 +110,9 @@ class Container(context: Context) {
     /** Read afresh on every call, so a document adopted mid-session lands on the next request. */
     val client = VodClient(http) { settings.current }
     val catalog = CatalogRepository(store, client, CatalogSync(client, store), scope)
+
+    /** The `Fútbol` tab: league matches by matchday, sorted on the VPS. See [FootballRepository]. */
+    val football = FootballRepository(client, store, scope)
 
     /**
      * Tells the panel what is being watched. Says nothing at all if the document carries no address.
@@ -266,6 +270,7 @@ class Container(context: Context) {
                 // A catalogue belongs to the account it was fetched with. When that account moves,
                 // the rows on disk are a different shop's stock and the ids in them point at nothing.
                 if (moved && store.hasCatalogue) catalog.refresh(nowMillis) else catalog.catchUp(nowMillis)
+                football.refresh(nowMillis)
             }
         }
     }
@@ -311,7 +316,10 @@ class Container(context: Context) {
                 delay(FOREGROUND_POLL_MS)
                 val nowMillis = System.currentTimeMillis()
                 adoptHostedConfig(nowMillis)
-                if (!provider.simple && !isPlaying) catalog.catchUp(nowMillis)
+                if (!provider.simple && !isPlaying) {
+                    catalog.catchUp(nowMillis)
+                    football.refresh(nowMillis)
+                }
             }
         }
     }

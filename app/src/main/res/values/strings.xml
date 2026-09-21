@@ -8,6 +8,10 @@
     <string name="tab_search">Buscar</string>
     <string name="tab_mylist">Mi lista</string>
     <string name="tab_live">TV</string>
+    <string name="tab_football">Fútbol</string>
+    <string name="football_matchday">Jornada %1$d</string>
+    <string name="football_other">Otros partidos</string>
+    <string name="football_empty">Todavía no hay partidos.</string>
     <string name="install_update">Instalar actualización</string>
 
     <string name="row_continue">Seguir viendo</string>

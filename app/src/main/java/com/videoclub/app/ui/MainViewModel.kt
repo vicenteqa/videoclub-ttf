@@ -11,6 +11,7 @@ import com.videoclub.app.Container
 import com.videoclub.app.Startup
 import com.videoclub.app.data.ContinueEntry
 import com.videoclub.app.data.Episode
+import com.videoclub.app.data.FootballSeason
 import com.videoclub.app.data.HomeRow
 import com.videoclub.app.data.InProgress
 import com.videoclub.app.data.Kind
@@ -52,6 +53,8 @@ enum class Tab(val kind: Kind?) {
     Home(null),
     Movies(Kind.Movie),
     Series(Kind.Series),
+    /** League matches by matchday. Not a kind of its own: they are films to the supplier. */
+    Football(null),
     MyList(null),
     Live(null),
     Search(null)
@@ -61,6 +64,8 @@ enum class Tab(val kind: Kind?) {
 sealed interface Screen {
     data class Browse(val tab: Tab) : Screen
     data class Grid(val categoryIds: List<Long>, val heading: String) : Screen
+    /** One competition's matchdays, opened from its tile on the `Fútbol` tab. */
+    data class Competition(val id: String) : Screen
     /**
      * [episodeKey] is which episode the page should open *on*, and only `Seguir viendo` sets it.
      *
@@ -314,6 +319,9 @@ class MainViewModel(private val container: Container) : ViewModel() {
         loadDetail(titleId)
     }
 
+    /** A competition's tile on the `Fútbol` tab: its matchdays, with Back to the tiles. */
+    fun openCompetition(id: String) = push(Screen.Competition(id))
+
     /** Opens a whole row as a grid. Several categories, because a row is a merge of them. */
     fun openRow(row: HomeRow) {
         if (row.categoryIds.isEmpty()) return
@@ -375,6 +383,17 @@ class MainViewModel(private val container: Container) : ViewModel() {
     }
 
     fun retrySync() = catalog.refresh(System.currentTimeMillis())
+
+    /**
+     * The `Fútbol` tab's matchdays. Empty until the VPS publishes some, and the tab hides until then.
+     *
+     * Empty for a children's profile as well, which hides the tab the same way: the league is not
+     * one of the shelves [Profile.childrenOnly] opens, any more than the grown-ups' films are.
+     */
+    val football: StateFlow<List<FootballSeason>> =
+        combine(container.football.seasons, _viewer) { seasons, viewer ->
+            if (viewer?.childrenOnly == true) emptyList() else seasons
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Whether the yellow arrow is up: a newer release, downloaded and checked. See [Updater]. */
     val updateReady: StateFlow<Boolean> = container.updater.ready
@@ -441,6 +460,12 @@ class MainViewModel(private val container: Container) : ViewModel() {
                 )
 
                 Tab.MyList -> BrowseState(watchlist = catalog.watchlist(), loading = false)
+                // Its rows are [football], not a read of the catalogue; asking again on the way in
+                // is what picks up a match that arrived since the last poll.
+                Tab.Football -> {
+                    container.football.refresh(System.currentTimeMillis())
+                    BrowseState(loading = false)
+                }
                 Tab.Search -> BrowseState(loading = false)
 
                 // Unreachable: `selectTab` never puts a `Browse(Live)` on the stack, because live

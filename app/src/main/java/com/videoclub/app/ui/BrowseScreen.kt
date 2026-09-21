@@ -15,22 +15,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -38,12 +29,12 @@ import androidx.compose.ui.unit.dp
 import com.videoclub.app.R
 import com.videoclub.app.data.ContinueEntry
 import com.videoclub.app.data.DeviceProfile
+import com.videoclub.app.data.FootballSeason
 import com.videoclub.app.data.HomeRow
 import com.videoclub.app.data.Profile
 import com.videoclub.app.data.SyncState
 import com.videoclub.app.data.Kind
 import com.videoclub.app.data.Title
-import kotlinx.coroutines.launch
 import com.videoclub.app.data.SyncProgress
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
@@ -77,6 +68,8 @@ fun TopStrip(
     /** Whether a newer release is downloaded and waiting: the yellow arrow beside `TV`. */
     updateReady: Boolean = false,
     onInstallUpdate: () -> Unit = {},
+    /** Whether there are any league matches to show: the `Fútbol` chip only exists when there are. */
+    showFootball: Boolean = false,
     autoFocus: Boolean = false
 ) {
     // While the videoclub is being built, every chip that leads into the catalogue leads to the
@@ -88,7 +81,7 @@ fun TopStrip(
     // reorder themselves as the batches land, and aiming at one that is about to be pushed down is
     // not browsing.
     val building = syncState is SyncState.Running
-    val tabs = listOf(
+    val tabs = listOfNotNull(
         TabEntry(
             tab = Tab.Home,
             label = stringResource(R.string.tab_home),
@@ -97,6 +90,16 @@ fun TopStrip(
         ),
         TabEntry(Tab.Movies, stringResource(R.string.tab_movies), enabled = !building),
         TabEntry(Tab.Series, stringResource(R.string.tab_series), enabled = !building),
+        // Beside `Series`, because to anybody looking for a match it is a kind of thing to watch,
+        // like the two before it. Left out entirely until the VPS has published a matchday.
+        // A ball rather than the word, like the house for `Inicio`: everybody reads it, and it
+        // costs a third of the strip that `Fútbol` would. The word stays as its spoken name.
+        TabEntry(
+            tab = Tab.Football,
+            label = stringResource(R.string.tab_football),
+            icon = SoccerIcon,
+            enabled = !building
+        ).takeIf { showFootball },
         TabEntry(Tab.MyList, stringResource(R.string.tab_mylist), enabled = !building),
         // Pinned, next to the magnifier: the two chips up here that are not shelves of the
         // videoclub. Everything to the left of them is somewhere in the catalogue; these two leave
@@ -127,7 +130,7 @@ fun TopStrip(
             onSelect = onSelectTab,
             autoFocus = autoFocus,
             accessoryAfter = Tab.Live.takeIf { updateReady },
-            accessory = { UpdateChip(onClick = onInstallUpdate) },
+            accessory = { UpdateChip(onInstall = onInstallUpdate) },
             trailing = {
                 ProfileChip(
                     profile = viewer,
@@ -159,7 +162,10 @@ fun BrowseScreen(
     onOpenEntry: (ContinueEntry) -> Unit,
     onForgetEntry: (ContinueEntry) -> Unit,
     onOpenRow: (HomeRow) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    football: List<FootballSeason> = emptyList(),
+    onOpenTitleId: (Long) -> Unit = {},
+    onOpenCompetition: (String) -> Unit = {}
 ) {
     val skin = LocalSkin.current
 
@@ -179,7 +185,9 @@ fun BrowseScreen(
             return@Column
         }
 
-        Box(Modifier.fillMaxSize().tabSwipe(current = tab, onSelect = onSelectTab)) {
+        // The same tabs as the strip, so a swipe never lands on one the strip is not showing.
+        val swipeTabs = if (football.isEmpty()) SWIPE_TABS - Tab.Football else SWIPE_TABS
+        Box(Modifier.fillMaxSize().tabSwipe(current = tab, order = swipeTabs, onSelect = onSelectTab)) {
             when (tab) {
                 Tab.Home -> HomeScreen(
                     state = state,
@@ -201,6 +209,12 @@ fun BrowseScreen(
                 )
 
                 Tab.MyList -> WatchlistRows(titles = state.watchlist, onOpenTitle = onOpenTitle)
+
+                Tab.Football -> FootballScreen(
+                    seasons = football,
+                    onOpenCompetition = onOpenCompetition,
+                    onOpenTitle = onOpenTitleId
+                )
 
                 // Unreachable: the television is not a body this strip switches between, it is a
                 // screen of its own that the strip happens to be the way into. Nothing ever puts a
@@ -306,9 +320,9 @@ private val RING_SIZE = 64.dp
 private val SWIPE_TABS: List<Tab> = Tab.entries.filterNot { it == Tab.Live }
 
 @Composable
-private fun Modifier.tabSwipe(current: Tab, onSelect: (Tab) -> Unit): Modifier {
+private fun Modifier.tabSwipe(current: Tab, order: List<Tab>, onSelect: (Tab) -> Unit): Modifier {
     val threshold = with(LocalDensity.current) { SWIPE_THRESHOLD.toPx() }
-    return pointerInput(current) {
+    return pointerInput(current, order) {
         var travelled = 0f
         detectHorizontalDragGestures(
             onDragStart = { travelled = 0f },
@@ -320,9 +334,9 @@ private fun Modifier.tabSwipe(current: Tab, onSelect: (Tab) -> Unit): Modifier {
                     travelled >= threshold -> -1
                     else -> 0
                 }
-                val at = SWIPE_TABS.indexOf(current)
+                val at = order.indexOf(current)
                 if (step != 0 && at >= 0) {
-                    SWIPE_TABS.getOrNull(at + step)?.let(onSelect)
+                    order.getOrNull(at + step)?.let(onSelect)
                 }
             }
         ) { _, delta -> travelled += delta }
@@ -355,65 +369,10 @@ private fun CategoryRows(
     }
 
     val resume = if (state.continueWatching.isEmpty()) 0 else 1
-    val shelves = state.rows.size + resume
-    val page = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val cursor = remember(shelves) { List(shelves) { FocusRequester() } }
-
-    /**
-     * How far below the top of the page the shelf under the cursor sits, always.
-     *
-     * A fixed place is the whole point. Scrolling the shelf to the very top — which is what this
-     * did — meant every press moved the page by a different amount depending on where things
-     * happened to be, and the page appeared to lurch at random. Landing every shelf in the same
-     * spot makes one press mean one shelf, and leaves the bottom of the shelf above showing, which
-     * is what tells you which way you just came from.
-     */
-    val perch = with(LocalDensity.current) { (skin.rowGap * 2).roundToPx() }
-
-    /**
-     * Up and down between shelves, moved by hand rather than left to the focus search.
-     *
-     * The focus search can only find something that exists, and in a lazy list the shelf above is
-     * usually not on screen and therefore not composed. What it finds instead is the tab strip,
-     * which is how pressing `up` in the middle of the page jumped straight to the top of it.
-     *
-     * So the shelf is scrolled to first — that is what brings it into being — and only then handed
-     * the cursor. Asking a whole shelf for the cursor rather than a poster means the row decides
-     * which poster gets it, which is the row's business and not this function's.
-     *
-     * Off either end it returns false and the search takes over, so `up` from the first shelf still
-     * reaches the tabs, which is exactly where it should go.
-     */
-    fun step(from: Int, delta: Int): Boolean {
-        val target = from + delta
-        if (target !in 0 until shelves) return false
-        scope.launch {
-            page.animateScrollToItem(target, -perch)
-            // A shelf that has just been scrolled into existence is not placed until the next
-            // frame, and asking an unplaced node for the cursor throws. Two frames is plenty.
-            repeat(3) { attempt ->
-                if (runCatching { cursor[target].requestFocus() }.isSuccess) return@launch
-                if (attempt < 2) withFrameNanos { }
-            }
-        }
-        return true
-    }
-
-    fun shelfKeys(index: Int) = Modifier.onPreviewKeyEvent { event ->
-        if (event.type != KeyEventType.KeyDown) {
-            false
-        } else {
-            when (event.key) {
-                Key.DirectionUp -> step(index, -1)
-                Key.DirectionDown -> step(index, 1)
-                else -> false
-            }
-        }
-    }
+    val cursor = rememberShelfCursor(shelves = state.rows.size + resume)
 
     LazyColumn(
-        state = page,
+        state = cursor.page,
         verticalArrangement = Arrangement.spacedBy(skin.rowGap),
         contentPadding = PaddingValues(bottom = skin.rowGap)
     ) {
@@ -425,8 +384,8 @@ private fun CategoryRows(
                     heading = stringResource(R.string.row_continue),
                     entries = state.continueWatching,
                     onOpen = onOpenTitle,
-                    modifier = shelfKeys(0),
-                    focus = cursor[0]
+                    modifier = cursor.keys(0),
+                    focus = cursor.requester(0)
                 )
             }
         }
@@ -441,8 +400,8 @@ private fun CategoryRows(
                 onOpen = onOpenTitle,
                 // `Novedades` is the app's own row and has no category behind it to open.
                 onHeadingClick = if (row.categoryIds.isEmpty()) null else ({ onOpenRow(row) }),
-                modifier = shelfKeys(index + resume),
-                focus = cursor[index + resume]
+                modifier = cursor.keys(index + resume),
+                focus = cursor.requester(index + resume)
             )
         }
     }

@@ -809,6 +809,10 @@ class CatalogStore(context: Context) {
             HashMap<Int, Long>().apply { while (cursor.moveToNext()) put(cursor.getInt(0), cursor.getLong(1)) }
         }
 
+    /** The film a supplier `stream_id` was folded into, or null when this catalogue lacks it. */
+    fun movieTitleForStream(streamId: Int): Long? =
+        filedTitle(helper.readableDatabase, Kind.Movie, streamId)
+
     /** The work a supplier id is filed under, wherever it is listed. */
     private fun filedTitle(db: SQLiteDatabase, kind: Kind, remoteId: Int): Long? =
         db.rawQuery(

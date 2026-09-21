@@ -62,7 +62,9 @@ import coil3.compose.AsyncImage
 import com.videoclub.app.R
 import com.videoclub.app.data.DeviceProfile
 import com.videoclub.app.data.Episode
+import com.videoclub.app.data.FootballMatch
 import com.videoclub.app.data.Kind
+import com.videoclub.app.data.MatchPlace
 import com.videoclub.app.data.Quality
 import com.videoclub.app.data.Source
 import com.videoclub.app.data.Title
@@ -87,7 +89,9 @@ fun DetailScreen(
     onToggleWatchlist: () -> Unit,
     modifier: Modifier = Modifier,
     /** The episode this page was opened *on*, if it was opened from `Seguir viendo`. */
-    episodeKey: Int? = null
+    episodeKey: Int? = null,
+    /** Where this title sits in the league, when it is a match. See [MatchPlace]. */
+    place: MatchPlace? = null
 ) {
     val skin = LocalSkin.current
     val title = state.title
@@ -137,6 +141,7 @@ fun DetailScreen(
             item(key = "head") {
                 Header(
                     state = state,
+                    place = place,
                     playFocus = playFocus,
                     onPlay = onPlay,
                     onSelectSource = onSelectSource,
@@ -184,6 +189,7 @@ fun DetailScreen(
 @Composable
 private fun Header(
     state: DetailState,
+    place: MatchPlace?,
     playFocus: FocusRequester,
     onPlay: (Boolean) -> Unit,
     onSelectSource: (Source) -> Unit,
@@ -195,28 +201,47 @@ private fun Header(
     val resumeAt = state.progress?.takeIf { !it.isFinished && it.positionMillis > RESUME_FLOOR_MS }
 
     Row(horizontalArrangement = Arrangement.spacedBy(skin.screenPadding)) {
-        AsyncImage(
-            model = title.posterUrl,
-            contentDescription = title.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .width(skin.posterWidth)
-                .height(skin.posterHeight)
-                .clip(RoundedCornerShape(skin.cornerRadius))
-                .background(VideoclubColors.PosterPlaceholder)
-        )
+        if (place != null) {
+            MatchCrests(place.match)
+        } else {
+            AsyncImage(
+                model = title.posterUrl,
+                contentDescription = title.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(skin.posterWidth)
+                    .height(skin.posterHeight)
+                    .clip(RoundedCornerShape(skin.cornerRadius))
+                    .background(VideoclubColors.PosterPlaceholder)
+            )
+        }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Label(text = title.name, style = skin.heroTitle, maxLines = 2)
-
-            val facts = listOfNotNull(
-                title.year?.toString(),
-                title.rating?.let { String.format("%.1f", it) },
-                detail?.genre,
-                detail?.durationSeconds
-                    ?.takeIf { it > 0 }
-                    ?.let { stringResource(R.string.minutes, it / 60) }
+            // A match is called by its two teams, not by the supplier's file name with a date on
+            // the end, and what it says underneath is where it sits in the league and when it
+            // was played — the year, the rating and the genre say nothing about a football match.
+            Label(
+                text = place?.let { "${it.match.home} – ${it.match.away}" } ?: title.name,
+                style = skin.heroTitle,
+                maxLines = 2
             )
+
+            val facts = if (place != null) {
+                listOfNotNull(
+                    "${place.season.name} ${place.season.season}",
+                    place.matchday?.let { matchdayLabel(it) },
+                    kickoff(place.match)
+                )
+            } else {
+                listOfNotNull(
+                    title.year?.toString(),
+                    title.rating?.let { String.format("%.1f", it) },
+                    detail?.genre,
+                    detail?.durationSeconds
+                        ?.takeIf { it > 0 }
+                        ?.let { stringResource(R.string.minutes, it / 60) }
+                )
+            }
             if (facts.isNotEmpty()) {
                 Label(
                     text = facts.joinToString("  ·  "),
@@ -350,6 +375,28 @@ private fun RoundAction(
 }
 
 private val ACTION_SIZE = 56.dp
+
+/**
+ * The two crests, in the place a film's poster goes: the supplier's own picture is the league's logo,
+ * the same on every match, so the crests are what tells this page apart from the one before it.
+ */
+@Composable
+private fun MatchCrests(match: FootballMatch) {
+    val skin = LocalSkin.current
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly,
+        modifier = Modifier
+            .width(skin.posterWidth)
+            .height(skin.posterHeight)
+            .clip(RoundedCornerShape(skin.cornerRadius))
+            .background(VideoclubColors.SurfaceElevated)
+            .padding(8.dp)
+    ) {
+        TeamSide(match.home, match.homeCrest, crestSize = skin.posterWidth * 0.45f)
+        TeamSide(match.away, match.awayCrest, crestSize = skin.posterWidth * 0.45f)
+    }
+}
 
 /** One chip per encode the supplier published. Only drawn when there is a real choice to make. */
 @Composable

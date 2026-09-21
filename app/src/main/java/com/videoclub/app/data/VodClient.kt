@@ -158,6 +158,19 @@ class VodClient(
             .getOrNull()
     }
 
+    /**
+     * The league sorted into matchdays by the VPS — see [FootballJson] — or null when there is none
+     * to be had: no mirror, no file yet, or a request that failed. Beside the mirror, like the rest.
+     */
+    suspend fun football(): List<FootballSeason>? = withContext(Dispatchers.IO) {
+        val directory = config.catalogMirrorUrl.takeIf { it.isNotEmpty() }
+            ?.substringBeforeLast('/')
+            ?: return@withContext null
+        runCatching { fetchText("$directory/futbol.json")?.let { FootballJson.seasons(it, directory) } }
+            .onFailure { error -> Log.i(TAG, "No football this time (${error.javaClass.simpleName})") }
+            .getOrNull()
+    }
+
     /** Beside the mirror, wherever the mirror is: `…/_catalogo/vod.json` → `…/_catalogo/delta/<path>`. */
     private fun deltaUrl(path: String): String? =
         config.catalogMirrorUrl.takeIf { it.isNotEmpty() }?.let { it.substringBeforeLast('/') + "/delta/" + path }
