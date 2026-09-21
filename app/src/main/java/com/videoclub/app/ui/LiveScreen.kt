@@ -47,6 +47,7 @@ import com.videoclub.app.MainActivity
 import com.videoclub.app.R
 import com.videoclub.app.data.RefreshState
 import com.videoclub.app.data.WatchReporter
+import com.videoclub.app.data.nowAndNext
 import com.videoclub.app.player.LivePlayer
 import com.videoclub.app.player.PlaybackState
 import com.videoclub.app.player.currentChannel
@@ -128,7 +129,13 @@ fun LiveScreen(
             parentScope = container.scope,
             profile = profile,
             onSettled = { channel ->
-                container.reporter.settledOn(channel.label, WatchReporter.Kind.Channel)
+                // The guide as it stands at this moment, read from the repository rather than from
+                // this composition: the player keeps this lambda for as long as it lives.
+                val showing = container.epg.guide.value[channel.feeds.first().streamId]
+                    ?.nowAndNext(System.currentTimeMillis())
+                    ?.first
+                    ?.title
+                container.reporter.settledOn(channel.label, WatchReporter.Kind.Channel, showing)
             }
         )
     }
@@ -211,6 +218,19 @@ fun LiveScreen(
             select(index)
         }
         container.tuneHandled()
+    }
+
+    // What the guide has on the channel being watched, as the clock above moves on. The panel is
+    // told whenever it changes — see [WatchReporter.programmeChanged], which ignores it until the
+    // channel has settled — and a guide that has run out of programmes is asked for again, so an
+    // evening on one channel does not freeze on whatever was on when it was first tuned.
+    val showing = currentChannel?.let { guide[it.feeds.first().streamId]?.nowAndNext(now)?.first?.title }
+    LaunchedEffect(currentChannel?.label, showing) {
+        val channel = currentChannel ?: return@LaunchedEffect
+        if (showing == null) {
+            container.epg.request(channel.feeds.first().streamId, System.currentTimeMillis())
+        }
+        container.reporter.programmeChanged(channel.label, showing)
     }
 
     // Announce whatever ends up on screen, whichever way it got there.

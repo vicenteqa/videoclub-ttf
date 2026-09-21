@@ -28,6 +28,11 @@ import org.json.JSONObject
  * one episode apart is not. The caller decides when something counts as being watched rather than
  * merely opened, and only then is anything sent at all.
  *
+ * A channel also says what its guide has on: "La 1" answers whether the television works, "La 1 ·
+ * Telediario" answers what the house is actually watching, which is what the panel is looked at
+ * for. It is sent again when the programme changes under a channel that stays on — see
+ * [programmeChanged] — and never while somebody is still zapping past.
+ *
  * This deliberately carries **no** viewer: which of the people in the household is watching is the
  * one thing here that would turn a debugging aid into surveillance of a specific person, and the
  * panel has no use for it.
@@ -44,12 +49,16 @@ import org.json.JSONObject
 class WatchReporter(
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
-    private val settings: ProviderSettings,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    /** Read afresh on every report, like [VodClient]'s: a document adopted mid-session applies at once. */
+    private val provider: () -> ProviderConfig,
 ) {
 
     /** The last thing actually sent, so re-opening the same title does not re-send it. */
     private var reported: String? = null
+
+    /** The channel that has settled, if one has: the only one whose programme changes are news. */
+    private var settledChannel: String? = null
 
     /**
      * Called when something has been playing long enough to count as what somebody is watching.
@@ -57,8 +66,8 @@ class WatchReporter(
      * Idempotent per title: the position save that drives this runs on a timer, so without the
      * check below an evening with one film would be a request every ten seconds.
      */
-    fun settledOn(label: String, kind: Kind) {
-        val config = settings.current
+    fun settledOn(label: String, kind: Kind, programme: String? = null) {
+        val config = provider()
         if (!config.reportsWhatIsOn) {
             // Said out loud because from the outside it is indistinguishable from nobody watching
             // anything, and the difference — a document with no `reportUrl` — is fixed in the panel
@@ -68,8 +77,10 @@ class WatchReporter(
         }
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
+        settledChannel = trimmed.takeIf { kind == Kind.Channel }
+        val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
 
-        val key = "${kind.wire}:$trimmed"
+        val key = "${kind.wire}:$trimmed:${showing.orEmpty()}"
         if (key == reported) return
         reported = key
 
@@ -80,6 +91,9 @@ class WatchReporter(
             put("canal", trimmed)
             put("tipo", kind.wire)
             put("desde", nowMillis() / 1000)
+            // What the guide has on, for a channel. Absent rather than empty when there is no guide:
+            // older panels ignore the field, and "no guide" is not a programme.
+            if (showing != null) put("programa", showing.take(PROGRAMME_MAX))
         }.toString()
 
         // On IO explicitly. The scope this is handed is the container's, which runs on
@@ -112,9 +126,24 @@ class WatchReporter(
         }
     }
 
+    /**
+     * The guide's programme on [channel] changed — the half hour turned, or the guide arrived after
+     * the channel did. Reported only for the channel that has already settled: while somebody is
+     * zapping, each channel they pass has a programme too, and none of them is what they watch.
+     *
+     * A guide that has simply run out says nothing: the programme on the panel stays the last one
+     * known until the guide, asked for again, names the next.
+     */
+    fun programmeChanged(channel: String, programme: String?) {
+        if (programme.isNullOrBlank()) return
+        if (settledChannel == null || settledChannel != channel.trim()) return
+        settledOn(channel, Kind.Channel, programme)
+    }
+
     /** Forgets what was last sent, so the next settled title is reported even if it repeats. */
     fun forget() {
         reported = null
+        settledChannel = null
     }
 
     /**
@@ -130,7 +159,8 @@ class WatchReporter(
      */
     fun stopped() {
         reported = null
-        val config = settings.current
+        settledChannel = null
+        val config = provider()
         if (!config.reportsWhatIsOn) return
 
         val body = JSONObject().apply { put("parado", true) }.toString()
@@ -167,7 +197,7 @@ class WatchReporter(
      * than on every launch — hence [sentLineup] — and at most it is a kilobyte once a day.
      */
     fun lineup(labels: List<String>) {
-        val config = settings.current
+        val config = provider()
         if (!config.reportsWhatIsOn) return
         if (labels.isEmpty()) return
 
@@ -215,7 +245,7 @@ class WatchReporter(
      * sent, so the next poll simply tries again on its own.
      */
     fun version(code: Int, owner: Boolean) {
-        val config = settings.current
+        val config = provider()
         if (!config.reportsWhatIsOn) return
         if (code == reportedVersion) return
 
@@ -254,6 +284,9 @@ class WatchReporter(
 
     private companion object {
         const val TAG = "WatchReporter"
+
+        /** The panel keeps 160 characters; a guide's title is rarely a tenth of that. */
+        const val PROGRAMME_MAX = 160
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }

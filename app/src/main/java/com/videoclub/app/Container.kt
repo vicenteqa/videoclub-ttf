@@ -120,7 +120,7 @@ class Container(context: Context) {
      * What counts as "being watched" is not decided here: that is [ui.MainViewModel], the only thing
      * that knows how long something has been on and whether it is a film or an episode.
      */
-    val reporter = WatchReporter(http, scope, settings)
+    val reporter = WatchReporter(http, scope) { settings.current }
 
     /**
      * The household's "Continue watching", the same on every one of its devices.
