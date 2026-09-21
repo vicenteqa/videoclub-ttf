@@ -57,6 +57,11 @@ data class ProviderOverrides(
      */
     val simple: Boolean? = null,
     /**
+     * Whether this household's app may open the panel — held `Inicio` icon, three seconds. Set per
+     * household in the panel; null means "leave whatever is cached", like [simple].
+     */
+    val panelAccess: Boolean? = null,
+    /**
      * Channels the supplier does not carry, added by the household — local stations. See
      * [ExtraChannel].
      *
@@ -84,7 +89,7 @@ data class ProviderOverrides(
     val isEmpty: Boolean
         get() = baseUrl == null && username == null && password == null &&
             userAgent == null && houseName == null && profiles == null &&
-            reportUrl == null && reportToken == null && simple == null &&
+            reportUrl == null && reportToken == null && simple == null && panelAccess == null &&
             extraChannels == null && tune == null && apk == null
 
     /**
@@ -104,6 +109,7 @@ data class ProviderOverrides(
         reportToken?.let { put(KEY_REPORT_TOKEN, it) }
         nextProfileId?.let { put(KEY_NEXT_PROFILE_ID, it) }
         simple?.let { put(KEY_SIMPLE, it) }
+        panelAccess?.let { put(KEY_PANEL_ACCESS, it) }
         extraChannels?.let { canales ->
             put(KEY_CHANNELS, JSONArray().apply {
                 canales.forEach { canal ->
@@ -143,6 +149,7 @@ data class ProviderOverrides(
         const val KEY_PROFILE_NAME = "nombre"
         const val KEY_PROFILE_CHILDREN = "infantil"
         const val KEY_SIMPLE = "simple"
+        const val KEY_PANEL_ACCESS = "panelAccess"
         const val KEY_CHANNELS = "canales"
         const val KEY_CHANNEL_NAME = "nombre"
         const val KEY_CHANNEL_URL = "url"
@@ -188,6 +195,11 @@ data class ProviderOverrides(
                 },
                 simple = if (json.has(KEY_SIMPLE) && !json.isNull(KEY_SIMPLE)) {
                     json.optBoolean(KEY_SIMPLE)
+                } else {
+                    null
+                },
+                panelAccess = if (json.has(KEY_PANEL_ACCESS) && !json.isNull(KEY_PANEL_ACCESS)) {
+                    json.optBoolean(KEY_PANEL_ACCESS)
                 } else {
                     null
                 },
@@ -310,5 +322,6 @@ fun ProviderConfig.mergedWith(overrides: ProviderOverrides): ProviderConfig = co
     reportUrl = overrides.reportUrl ?: reportUrl,
     reportToken = overrides.reportToken ?: reportToken,
     simple = overrides.simple ?: simple,
+    panelAccess = overrides.panelAccess ?: panelAccess,
     extraChannels = overrides.extraChannels ?: extraChannels
 )

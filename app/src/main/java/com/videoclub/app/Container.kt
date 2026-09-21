@@ -109,7 +109,20 @@ class Container(context: Context) {
 
     /** Read afresh on every call, so a document adopted mid-session lands on the next request. */
     val client = VodClient(http) { settings.current }
-    val catalog = CatalogRepository(store, client, CatalogSync(client, store), scope)
+    /**
+     * Whenever the catalogue gains rows — a full download, or changes applied — the two things that
+     * wait on it are asked again straight away: the progress sync, which leaves "Seguir viendo" and
+     * "Mi lista" rows it could not place yet for a later round, and the football tab, which only
+     * shows matches this catalogue can open. Waiting for the next poll left a fresh install without
+     * either until somebody left the app and came back.
+     */
+    // Typed out: this and [progressSync] each call the other, which is more than inference can follow.
+    val catalog: CatalogRepository = CatalogRepository(store, client, CatalogSync(client, store), scope) {
+        if (!provider.simple) {
+            progressSync.request()
+            football.refresh(System.currentTimeMillis())
+        }
+    }
 
     /** The `Fútbol` tab: league matches by matchday, sorted on the VPS. See [FootballRepository]. */
     val football = FootballRepository(client, store, scope)
@@ -129,7 +142,7 @@ class Container(context: Context) {
      * something. Nothing waits on it: what the screen draws comes out of SQLite, and this is a
      * background errand that brings that database up to date.
      */
-    val progressSync = ProgressSync(http, scope, store, settings) { catalog.reload() }
+    val progressSync: ProgressSync = ProgressSync(http, scope, store, settings) { catalog.reload() }
 
     // ------------------------------------------------------------------------- live television
 

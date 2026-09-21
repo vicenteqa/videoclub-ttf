@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -70,6 +71,8 @@ fun TopStrip(
     onInstallUpdate: () -> Unit = {},
     /** Whether there are any league matches to show: the `Fútbol` chip only exists when there are. */
     showFootball: Boolean = false,
+    /** Holding `Inicio` three seconds: the panel, for a household allowed to open it. Null elsewhere. */
+    onHoldHome: (() -> Unit)? = null,
     autoFocus: Boolean = false
 ) {
     // While the videoclub is being built, every chip that leads into the catalogue leads to the
@@ -86,7 +89,8 @@ fun TopStrip(
             tab = Tab.Home,
             label = stringResource(R.string.tab_home),
             icon = Icons.Default.Home,
-            enabled = !building
+            enabled = !building,
+            onHold = onHoldHome
         ),
         TabEntry(Tab.Movies, stringResource(R.string.tab_movies), enabled = !building),
         TabEntry(Tab.Series, stringResource(R.string.tab_series), enabled = !building),
@@ -100,7 +104,14 @@ fun TopStrip(
             icon = SoccerIcon,
             enabled = !building
         ).takeIf { showFootball },
-        TabEntry(Tab.MyList, stringResource(R.string.tab_mylist), enabled = !building),
+        // A star rather than the words, like the house and the ball: it reads as "favourites" at a
+        // glance, and the words stay as its spoken name.
+        TabEntry(
+            tab = Tab.MyList,
+            label = stringResource(R.string.tab_mylist),
+            icon = Icons.Default.Star,
+            enabled = !building
+        ),
         // Pinned, next to the magnifier: the two chips up here that are not shelves of the
         // videoclub. Everything to the left of them is somewhere in the catalogue; these two leave
         // it. Pinning also means neither can be scrolled out of reach on a phone held upright,
@@ -163,6 +174,8 @@ fun BrowseScreen(
     onForgetEntry: (ContinueEntry) -> Unit,
     onOpenRow: (HomeRow) -> Unit,
     modifier: Modifier = Modifier,
+    /** Held card on `Películas` and `Series`: the same question `Inicio` asks through [onForgetEntry]. */
+    onForgetTitle: (Title) -> Unit = {},
     football: List<FootballSeason> = emptyList(),
     onOpenTitleId: (Long) -> Unit = {},
     onOpenCompetition: (String) -> Unit = {}
@@ -198,7 +211,7 @@ fun BrowseScreen(
                 )
 
                 Tab.Movies, Tab.Series ->
-                    CategoryRows(state, syncState, onOpenTitle, onOpenRow)
+                    CategoryRows(state, syncState, onOpenTitle, onOpenRow, onForgetTitle)
 
                 Tab.Search -> SearchScreen(
                     query = query,
@@ -351,7 +364,8 @@ private fun CategoryRows(
     state: BrowseState,
     syncState: SyncState,
     onOpenTitle: (Title) -> Unit,
-    onOpenRow: (HomeRow) -> Unit
+    onOpenRow: (HomeRow) -> Unit,
+    onForgetTitle: (Title) -> Unit
 ) {
     val skin = LocalSkin.current
 
@@ -384,6 +398,7 @@ private fun CategoryRows(
                     heading = stringResource(R.string.row_continue),
                     entries = state.continueWatching,
                     onOpen = onOpenTitle,
+                    onLongClick = { onForgetTitle(it.title) },
                     modifier = cursor.keys(0),
                     focus = cursor.requester(0)
                 )

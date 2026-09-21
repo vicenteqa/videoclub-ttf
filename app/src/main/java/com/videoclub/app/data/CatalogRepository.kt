@@ -56,7 +56,9 @@ class CatalogRepository(
     private val store: CatalogStore,
     private val client: VodClient,
     private val sync: CatalogSync,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    /** Called once the catalogue has gained rows: a full download finished, or changes applied. */
+    private val onUpdated: () -> Unit = {}
 ) {
 
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
@@ -213,24 +215,29 @@ class CatalogRepository(
 
     private suspend fun applyChangesSince(local: Long, index: CatalogIndex, nowMillis: Long) {
         var version = local
-        while (version < index.version) {
-            // Not this time: the next poll asks again, from wherever this got to.
-            val changes = client.catalogChanges(version + 1) ?: return
-            val applied = withContext(Dispatchers.IO) { store.applyChanges(changes, nowMillis) }
-            if (!applied) {
-                if (nowMillis - fullSyncStartedAtMillis >= FULL_SYNC_RETRY_MILLIS) {
-                    Log.w(TAG, "Changes ${changes.version} do not fit this catalogue; downloading the mirror")
-                    runFullSync(nowMillis, quiet = true)
+        try {
+            while (version < index.version) {
+                // Not this time: the next poll asks again, from wherever this got to.
+                val changes = client.catalogChanges(version + 1) ?: return
+                val applied = withContext(Dispatchers.IO) { store.applyChanges(changes, nowMillis) }
+                if (!applied) {
+                    if (nowMillis - fullSyncStartedAtMillis >= FULL_SYNC_RETRY_MILLIS) {
+                        Log.w(TAG, "Changes ${changes.version} do not fit this catalogue; downloading the mirror")
+                        runFullSync(nowMillis, quiet = true)
+                    }
+                    return
                 }
-                return
+                version = changes.version
+                shelvingCache.clear()
+                agreementCache.clear()
+                _revision.update { it + 1 }
             }
-            version = changes.version
-            shelvingCache.clear()
-            agreementCache.clear()
-            _revision.update { it + 1 }
+            withContext(Dispatchers.IO) { store.markSynced(nowMillis) }
+            Log.i(TAG, "Catalogue caught up from version $local to $version")
+        } finally {
+            // Whatever got applied, even if a later file did not arrive: see [onUpdated].
+            if (version > local) onUpdated()
         }
-        withContext(Dispatchers.IO) { store.markSynced(nowMillis) }
-        Log.i(TAG, "Catalogue caught up from version $local to $version")
     }
 
     /** The full download, because somebody asked for it or because there is no catalogue at all. */
@@ -283,6 +290,8 @@ class CatalogRepository(
             // empty while holding half a catalogue.
             _revision.update { it + 1 }
         }
+        // Rows arrived either way — all of them, or as many as there were before it broke.
+        onUpdated()
     }
 
     fun acknowledgeSync() {

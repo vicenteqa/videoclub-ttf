@@ -36,6 +36,8 @@ data class ProviderConfig(
      * The panel sets it; its default (`false`) is the full video shop as always.
      */
     val simple: Boolean = false,
+    /** Whether this household's app may open the panel. See [panelUrl]. */
+    val panelAccess: Boolean = false,
     /** The channels the household adds on its own, on top of the supplier's. */
     val extraChannels: List<ExtraChannel> = emptyList()
 ) {
@@ -81,6 +83,17 @@ data class ProviderConfig(
         } else {
             ""
         }
+
+    /**
+     * The panel, on the same host, for a household allowed to open it — see [panelAccess] — or blank.
+     * Derived like [syncUrl]: the panel is wherever `/informe` is, behind its own password.
+     */
+    val panelUrl: String
+        get() = if (panelAccess && reportUrl.startsWith("https://") && reportUrl.endsWith(REPORT_PATH)) {
+            reportUrl.removeSuffix(REPORT_PATH) + PANEL_PATH
+        } else {
+            ""
+        }
     /** Enough to ask the supplier something. The `User-Agent` has a default, so it is not here. */
     val isConfigured: Boolean
         get() = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
@@ -98,6 +111,7 @@ data class ProviderConfig(
         reportUrl = reportUrl.trim(),
         reportToken = reportToken.trim(),
         simple = simple,
+        panelAccess = panelAccess,
         extraChannels = extraChannels
     )
 
@@ -105,6 +119,7 @@ data class ProviderConfig(
         const val DEFAULT_USER_AGENT = "Videoclub/1.0"
 
         private const val REPORT_PATH = "/informe"
+        private const val PANEL_PATH = "/panel/"
         private const val SYNC_PATH = "/sync"
         private const val CATALOG_MIRROR_PATH = "/videoclub/_catalogo/vod.json"
 

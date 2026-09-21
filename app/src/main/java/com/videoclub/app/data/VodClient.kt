@@ -2,7 +2,11 @@ package com.videoclub.app.data
 
 import android.util.Base64
 import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.zip.Deflater
+import java.util.zip.DeflaterOutputStream
+import java.util.zip.InflaterInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -98,10 +102,15 @@ class VodClient(
         var generatedAtSeconds = 0L
         var version = 0L
         val categoriesByKind = mutableMapOf<Kind, MutableList<RemoteCategory>>()
-        val listingsByKey = mutableMapOf<String, String>()
+        val listingsByKey = HashMap<String, ByteArray>()
 
         body.charStream().forEachLine { line ->
             if (line.isBlank()) return@forEachLine
+            // Listings first, and without parsing them: see [MirrorLines].
+            MirrorLines.listing(line)?.let { (kind, categoryId, items) ->
+                listingsByKey[mirrorKey(kind, categoryId)] = MirrorLines.pack(items)
+                return@forEachLine
+            }
             val row = runCatching { JSONObject(line) }.getOrNull() ?: return@forEachLine
             when (row.optString("tipo")) {
                 "meta" -> {
@@ -117,7 +126,7 @@ class VodClient(
                     val kind = mirrorKind(row.optString("kind")) ?: return@forEachLine
                     val categoryId = row.optString("category_id")
                     val items = row.optJSONArray("items")?.toString() ?: return@forEachLine
-                    listingsByKey[mirrorKey(kind, categoryId)] = items
+                    listingsByKey[mirrorKey(kind, categoryId)] = MirrorLines.pack(items)
                 }
             }
         }
@@ -373,12 +382,59 @@ private fun mirrorKey(kind: Kind, categoryId: String): String =
  */
 class CatalogMirror internal constructor(
     private val categoriesByKind: Map<Kind, List<RemoteCategory>>,
-    private val listingsByKey: Map<String, String>
+    /** Each category's listings as [MirrorLines.pack] left them: compressed until asked for. */
+    private val listingsByKey: Map<String, ByteArray>
 ) {
 
     fun categories(kind: Kind): List<RemoteCategory> = categoriesByKind[kind].orEmpty()
 
     /** Null when this category never made it into the mirror — a household falls back for it alone. */
     fun listings(kind: Kind, categoryId: String): List<Listing>? =
-        listingsByKey[mirrorKey(kind, categoryId)]?.let { CatalogJson.listings(kind, it) }
+        listingsByKey[mirrorKey(kind, categoryId)]?.let { CatalogJson.listings(kind, MirrorLines.unpack(it)) }
+}
+
+/**
+ * Holding the mirror in memory without holding 110 MB of it.
+ *
+ * The mirror is read whole before any of it is written, and every category's listings used to be
+ * kept as a Java string until then: some 110 MB of UTF-8, twice that as UTF-16, on a heap that is
+ * 192 MB on the tablet and on the boxes. Measured on the tablet on 2026-09-21: an OutOfMemoryError
+ * half way through, the download thrown away, and for the half minute before it the garbage collector
+ * running flat out — which is what scrolling felt like while it happened. Compressed, the same
+ * listings are about a quarter of that, and only the category being written is ever unpacked.
+ *
+ * And a listing line is not parsed to be kept. `catalogo-maestro.py` writes each one as
+ * `{"tipo":"listado","kind":…,"category_id":…,"items":[…]}`, in that order; the array is cut straight
+ * out of the text, where building a JSON tree of a several-megabyte line only to turn it back into
+ * text cost several times the line itself. A line in any other shape is left to the caller, which
+ * parses it as before.
+ */
+internal object MirrorLines {
+
+    private val LISTING_HEAD = Regex("""^\{"tipo":"listado","kind":"(vod|series)","category_id":"([^"\\]*)","items":""")
+
+    /** Kind, category and the raw `items` array of a listing line in the usual shape, or null. */
+    fun listing(line: String): Triple<Kind, String, String>? {
+        val head = LISTING_HEAD.find(line) ?: return null
+        val kind = mirrorKind(head.groupValues[1]) ?: return null
+        val end = line.lastIndexOf('}')
+        if (end <= head.range.last) return null
+        val items = line.substring(head.range.last + 1, end).trim()
+        if (!items.startsWith("[") || !items.endsWith("]")) return null
+        return Triple(kind, head.groupValues[2], items)
+    }
+
+    fun pack(text: String): ByteArray {
+        val deflater = Deflater(Deflater.BEST_SPEED)
+        return try {
+            ByteArrayOutputStream(text.length / 4).also { out ->
+                DeflaterOutputStream(out, deflater).use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            }.toByteArray()
+        } finally {
+            deflater.end()
+        }
+    }
+
+    fun unpack(bytes: ByteArray): String =
+        InflaterInputStream(bytes.inputStream()).use { it.readBytes().toString(Charsets.UTF_8) }
 }

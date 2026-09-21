@@ -103,6 +103,7 @@
     <string name="live_exit_title">¿Apagar la tele?</string>
     <string name="live_exit_confirm">Sí, apagar</string>
     <string name="live_exit_cancel">No, seguir viendo</string>
+    <string name="panel_auth_title">Contraseña del panel</string>
     <string name="login_title">¿De qué casa es este aparato?</string>
     <string name="login_note">Escribe el usuario y la contraseña de tu casa. Sólo se pide esta vez.</string>
     <string name="login_username">Usuario</string>

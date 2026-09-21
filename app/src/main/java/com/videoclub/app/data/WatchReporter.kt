@@ -69,7 +69,7 @@ class WatchReporter(
      * Idempotent per title: the position save that drives this runs on a timer, so without the
      * check below an evening with one film would be a request every ten seconds.
      */
-    fun settledOn(label: String, kind: Kind, programme: String? = null) {
+    fun settledOn(label: String, kind: Kind, programme: String? = null, episode: EpisodeRef? = null) {
         val config = provider()
         if (!config.reportsWhatIsOn) {
             // Said out loud because from the outside it is indistinguishable from nobody watching
@@ -83,10 +83,10 @@ class WatchReporter(
         settledChannel = trimmed.takeIf { kind == Kind.Channel }
         val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
 
-        val key = "${kind.wire}:$trimmed:${showing.orEmpty()}"
+        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}:${showing.orEmpty()}"
         if (key == reported) return
         reported = key
-        send(config, trimmed, kind, showing, provisional = false)
+        send(config, trimmed, kind, showing, episode, provisional = false)
     }
 
     /**
@@ -100,19 +100,32 @@ class WatchReporter(
      * still only counts what was actually watched. Sent once per title, and never again for what
      * has already settled.
      */
-    fun tuning(label: String, kind: Kind, programme: String? = null) {
+    fun tuning(label: String, kind: Kind, programme: String? = null, episode: EpisodeRef? = null) {
         val config = provider()
         if (!config.reportsWhatIsOn) return
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
         val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
-        val key = "${kind.wire}:$trimmed"
+        // The episode is part of what is new: the next episode of the same series is announced too.
+        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}"
         if (key == tuned || reported?.startsWith("$key:") == true) return
         tuned = key
-        send(config, trimmed, kind, showing, provisional = true)
+        send(config, trimmed, kind, showing, episode, provisional = true)
     }
 
-    private fun send(config: ProviderConfig, label: String, kind: Kind, showing: String?, provisional: Boolean) {
+    /** Which episode of a series is on, for the panel's row. See [send]. */
+    data class EpisodeRef(val season: Int, val number: Int) {
+        val wire: String get() = "${season}x$number"
+    }
+
+    private fun send(
+        config: ProviderConfig,
+        label: String,
+        kind: Kind,
+        showing: String?,
+        episode: EpisodeRef?,
+        provisional: Boolean
+    ) {
         val body = JSONObject().apply {
             // `canal` for the field name, whatever the kind: the panel has spoken that word since
             // it only knew about live television, and renaming it would break every box already
@@ -123,6 +136,12 @@ class WatchReporter(
             // What the guide has on, for a channel. Absent rather than empty when there is no guide:
             // older panels ignore the field, and "no guide" is not a programme.
             if (showing != null) put("programa", showing.take(PROGRAMME_MAX))
+            // Which episode, for a series: the panel's row says "Temporada 2 · Capítulo 5" under the
+            // name. The name stays the series', so its history still counts the series as one.
+            if (episode != null) {
+                put("season", episode.season)
+                put("episode", episode.number)
+            }
             if (provisional) put("provisional", true)
         }.toString()
 

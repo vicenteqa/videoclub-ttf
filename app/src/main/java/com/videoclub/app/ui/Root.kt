@@ -134,9 +134,9 @@ fun VideoclubRoot(
         )
     }
 
-    val forgetMenu = pendingForget?.let { entry ->
+    val forgetMenu = pendingForget?.let { title ->
         MenuContent(
-            heading = stringResource(R.string.continue_forget, entry.title.name),
+            heading = stringResource(R.string.continue_forget, title.name),
             note = stringResource(R.string.continue_forget_note),
             actions = listOf(
                 MenuAction(
@@ -200,6 +200,7 @@ private fun VideoclubScreen(
                 updateReady = updateReady,
                 showFootball = football.isNotEmpty(),
                 onInstallUpdate = viewModel::installUpdate,
+                onHoldHome = if (viewModel.panelUrl != null) viewModel::openPanel else null,
                 autoFocus = viewModel.deviceProfile == DeviceProfile.Tv && current is Screen.Browse
             )
 
@@ -223,6 +224,7 @@ private fun VideoclubScreen(
                             viewModel.openTitle(entry.title.id, entry.episodeKey.takeIf { it > 0 })
                         },
                         onForgetEntry = viewModel::askForget,
+                        onForgetTitle = viewModel::askForget,
                         onOpenRow = viewModel::openRow,
                         football = football,
                         onOpenTitleId = { viewModel.openTitle(it) },
@@ -288,6 +290,13 @@ private fun VideoclubScreen(
 
         // Full-screen, like the player and for the same reason: it is a picture. No strip, no
         // insets, and Back is answered by the screen itself until it runs out of layers.
+        // The panel, full screen: it is a page of its own, with its own header. See [PanelScreen].
+        Screen.Panel -> PanelScreen(
+            url = viewModel.panelUrl.orEmpty(),
+            onLeave = { viewModel.back() },
+            modifier = inset
+        )
+
         Screen.Live -> LiveScreen(
             container = container,
             onLeave = { viewModel.back() },

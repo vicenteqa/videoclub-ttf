@@ -25,9 +25,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -286,8 +285,9 @@ private fun Header(
                         onClick = { onPlay(false) }
                     )
                 }
+                // A star, like the `Mi lista` chip in the strip: filled when it is in the list.
                 RoundAction(
-                    icon = if (state.inWatchlist) Icons.Default.Check else Icons.Default.Add,
+                    icon = if (state.inWatchlist) Icons.Default.Star else StarOutlineIcon,
                     description = stringResource(
                         if (state.inWatchlist) R.string.remove_from_list else R.string.add_to_list_long
                     ),

@@ -84,6 +84,9 @@ sealed interface Screen {
      */
     data object Live : Screen
 
+    /** The VPS's panel, for a household allowed to open it: see [MainViewModel.openPanel]. */
+    data object Panel : Screen
+
     /** The three settings screens: a menu of two, and the two it opens. */
 }
 
@@ -108,7 +111,10 @@ data class PlayRequest(
     val subheading: String?,
     val startPositionMillis: Long,
     /** What this viewer was watching it in last time, for the player to ask the file for. */
-    val tracks: TrackChoice? = null
+    val tracks: TrackChoice? = null,
+    /** Season and number of an episode, for the panel; null for a film. */
+    val season: Int? = null,
+    val episodeNumber: Int? = null
 )
 
 @Immutable
@@ -225,8 +231,8 @@ class MainViewModel(private val container: Container) : ViewModel() {
     val menu: StateFlow<TitleMenuState?> = _menu.asStateFlow()
 
     /** The `Seguir viendo` card a long press is asking to forget, if any. */
-    private val _forget = MutableStateFlow<ContinueEntry?>(null)
-    val forget: StateFlow<ContinueEntry?> = _forget.asStateFlow()
+    private val _forget = MutableStateFlow<Title?>(null)
+    val forget: StateFlow<Title?> = _forget.asStateFlow()
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -383,6 +389,19 @@ class MainViewModel(private val container: Container) : ViewModel() {
     }
 
     fun retrySync() = catalog.refresh(System.currentTimeMillis())
+
+    /**
+     * The panel's address, or null for a household the panel has not allowed to open it — which is
+     * every household but the ones ticked in its sheet, and there the gesture does nothing at all.
+     * Read afresh, so ticking or unticking it in the panel reaches the app on its next poll.
+     */
+    val panelUrl: String?
+        get() = container.provider.panelUrl.takeIf { it.isNotEmpty() }
+
+    /** Holding `Inicio` for three seconds. See [PanelScreen]. */
+    fun openPanel() {
+        if (panelUrl != null && _stack.value.last() != Screen.Panel) push(Screen.Panel)
+    }
 
     /**
      * The `Fútbol` tab's matchdays. Empty until the VPS publishes some, and the tab hides until then.
@@ -553,8 +572,11 @@ class MainViewModel(private val container: Container) : ViewModel() {
      * reason the poster menu is: both are drawn by [OverlayMenu] at the top of the app, where there
      * is a whole screen to darken and nothing that a recycled lazy row can take away mid-question.
      */
-    fun askForget(entry: ContinueEntry) {
-        _forget.value = entry
+    fun askForget(entry: ContinueEntry) = askForget(entry.title)
+
+    /** The same question from `Películas` and `Series`, whose resume row holds titles, not entries. */
+    fun askForget(title: Title) {
+        _forget.value = title
     }
 
     fun cancelForget() {
@@ -563,9 +585,9 @@ class MainViewModel(private val container: Container) : ViewModel() {
 
     /** Takes the card off. The bumped revision is what redraws the row without it. */
     fun confirmForget() {
-        val entry = _forget.value ?: return
+        val title = _forget.value ?: return
         _forget.value = null
-        catalog.forgetProgress(entry.title.id)
+        catalog.forgetProgress(title.id)
     }
 
     // ---------------------------------------------------------------------------------- playback
@@ -579,17 +601,32 @@ class MainViewModel(private val container: Container) : ViewModel() {
             return
         }
         viewModelScope.launch {
-            push(
-                Screen.Play(
-                    movieRequest(
-                        title = state.title,
-                        source = source,
-                        startMillis = if (resume) state.progress?.positionMillis ?: 0L else 0L,
-                        tracks = catalog.tracks(state.title.id)
-                    )
+            startPlaying(
+                movieRequest(
+                    title = state.title,
+                    source = source,
+                    startMillis = if (resume) state.progress?.positionMillis ?: 0L else 0L,
+                    tracks = catalog.tracks(state.title.id)
                 )
             )
         }
+    }
+
+    /**
+     * Opens the player and tells the panel at once — provisionally, see [WatchReporter.tuning] —
+     * rather than at the first position save ten seconds in: the panel's row follows what is on
+     * from the moment it starts, whatever it is. What counts for the history still waits for
+     * [reportIfSettled].
+     */
+    private fun startPlaying(request: PlayRequest) {
+        push(Screen.Play(request))
+        container.reporter.tuning(request.heading, kindOf(request), episode = episodeOf(request))
+    }
+
+    private fun episodeOf(request: PlayRequest): WatchReporter.EpisodeRef? {
+        val season = request.season ?: return null
+        val number = request.episodeNumber ?: return null
+        return WatchReporter.EpisodeRef(season, number)
     }
 
     /**
@@ -633,7 +670,7 @@ class MainViewModel(private val container: Container) : ViewModel() {
                 // Of the series, not of the episode: nobody re-picks a language at episode two.
                 tracks = catalog.tracks(state.title.id)
             ) ?: return@launch
-            push(Screen.Play(request))
+            startPlaying(request)
         }
     }
 
@@ -673,7 +710,9 @@ class MainViewModel(private val container: Container) : ViewModel() {
             heading = title.name,
             subheading = "T${episode.season}:E${episode.number}  ·  ${episode.title}",
             startPositionMillis = startMillis,
-            tracks = tracks
+            tracks = tracks,
+            season = episode.season,
+            episodeNumber = episode.number
         )
     }
 
@@ -716,12 +755,12 @@ class MainViewModel(private val container: Container) : ViewModel() {
             settledFromMillis = positionMillis
             // Said straight away, marked provisional, so the panel knows it is this app from the
             // first seconds: see [WatchReporter.tuning].
-            container.reporter.tuning(request.heading, kindOf(request))
+            container.reporter.tuning(request.heading, kindOf(request), episode = episodeOf(request))
             return
         }
         if (positionMillis - settledFromMillis < SETTLE_MS) return
         Log.i(TAG, "On for a while: reporting «${request.heading}»")
-        container.reporter.settledOn(request.heading, kindOf(request))
+        container.reporter.settledOn(request.heading, kindOf(request), episode = episodeOf(request))
     }
 
     // An episode always carries its identifier; a film goes with zero. It is the same distinction

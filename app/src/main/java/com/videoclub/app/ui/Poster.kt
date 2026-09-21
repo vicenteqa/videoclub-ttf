@@ -360,7 +360,9 @@ fun ContinueRow(
     entries: List<InProgress>,
     onOpen: (Title) -> Unit,
     modifier: Modifier = Modifier,
-    focus: FocusRequester? = null
+    focus: FocusRequester? = null,
+    /** Holding a card: asks whether to take it off the row, as `Inicio`'s own row does. */
+    onLongClick: ((InProgress) -> Unit)? = null
 ) {
     if (entries.isEmpty()) return
     val skin = LocalSkin.current
@@ -382,6 +384,7 @@ fun ContinueRow(
                 ContinueCard(
                     entry = entry,
                     onClick = { onOpen(entry.title) },
+                    onLongClick = onLongClick?.let { held -> { held(entry) } },
                     onFocused = { current = index },
                     modifier = when {
                         focus != null && index == current -> Modifier.focusRequester(focus)
@@ -398,6 +401,7 @@ private fun ContinueCard(
     entry: InProgress,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null
 ) {
     val skin = LocalSkin.current
@@ -411,7 +415,7 @@ private fun ContinueCard(
                 focused = it.isFocused
                 if (it.isFocused) onFocused?.invoke()
             }
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         ZoomOnFocus(focused, label = "continueScale") {
             Box(
@@ -499,7 +503,9 @@ data class TabEntry(
      * minutes later is a strip that moves under the cursor, and the four that are missing are
      * exactly the information somebody is waiting for.
      */
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** A three-second hold, for what nobody should find by accident. See [onHeld]. */
+    val onHold: (() -> Unit)? = null
 )
 
 /**
@@ -646,7 +652,7 @@ private fun TabChip(
         filled = selected,
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier,
+        modifier = modifier.onHeld(HOLD_MS, entry.onHold),
         enabled = entry.enabled,
         horizontalPadding = if (entry.icon != null) 12.dp else 16.dp
     ) { foreground ->
@@ -740,6 +746,9 @@ private fun UpdateHint() {
 }
 
 private const val UPDATE_HINT_MS = 3_000L
+
+/** How long a chip's [TabEntry.onHold] has to be held. */
+private const val HOLD_MS = 3_000L
 
 /**
  * The one chip shape in the app, and the three states it has.
