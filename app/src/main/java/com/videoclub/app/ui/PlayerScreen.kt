@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,8 +79,8 @@ fun PlayerScreen(
     val player = remember {
         VodPlayer(context, container.http, container.provider.userAgent)
     }
-    val failure by player.failure.collectAsState()
-    val audioFallback by player.audioFallback.collectAsState()
+    val failure by player.failure.collectAsStateWithLifecycle()
+    val audioFallback by player.audioFallback.collectAsStateWithLifecycle()
 
     /** Which copy is on screen. Only ever moves forward, and only on a decoding failure. */
     var attempt by remember(request) { mutableIntStateOf(0) }

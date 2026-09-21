@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -21,9 +22,15 @@ import com.videoclub.app.data.Title
 /**
  * A wall of posters, as many across as the window will take.
  *
- * `Adaptive` rather than a fixed count on purpose: the same code then gives three across on a phone
- * held upright, five on a tablet and eight on a television, without anybody having to decide which
- * device is which.
+ * As many across as fit rather than a fixed count on purpose: the same code then gives three across
+ * on a phone held upright, five on a tablet and eight on a television, without anybody having to
+ * decide which device is which.
+ *
+ * `FixedSize` and not `Adaptive`, so a poster here is exactly the poster of every row. `Adaptive`
+ * shares the leftover width out between the columns, which stretched each card wider than the
+ * poster's own height allows for: the artwork was cropped to a squatter shape than anywhere else,
+ * and the same film looked like two different cards depending on the screen it was found on. Now
+ * the leftover is split between the two margins, and there is one poster size in the whole app.
  */
 @Composable
 fun TitleGrid(
@@ -35,8 +42,8 @@ fun TitleGrid(
 ) {
     val skin = LocalSkin.current
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = skin.posterWidth + skin.posterGap),
-        horizontalArrangement = Arrangement.spacedBy(skin.posterGap),
+        columns = GridCells.FixedSize(skin.posterWidth),
+        horizontalArrangement = Arrangement.spacedBy(skin.posterGap, Alignment.CenterHorizontally),
         verticalArrangement = Arrangement.spacedBy(skin.posterGap),
         contentPadding = PaddingValues(skin.screenPadding),
         modifier = modifier.fillMaxSize()

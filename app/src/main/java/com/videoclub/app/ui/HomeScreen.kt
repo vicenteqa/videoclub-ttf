@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -85,7 +86,8 @@ fun HomeScreen(
         contentPadding = PaddingValues(top = skin.rowGap / 2, bottom = skin.rowGap)
     ) {
         if (state.continueEntries.isNotEmpty()) {
-            item(key = "continue") {
+            // Only the shelves share a type: see `CategoryRows`.
+            item(key = "continue", contentType = "continue") {
                 ContinueSection(
                     entries = state.continueEntries,
                     onOpen = onOpenEntry,
@@ -95,21 +97,25 @@ fun HomeScreen(
         }
         // Second, under what you were in the middle of: this is the row somebody *chose*, one title
         // at a time, and it has a claim on the top of the page that a row the app guessed does not.
-        item(key = "mylist") {
+        item(key = "mylist", contentType = "shelf") {
             PosterRow(
                 heading = stringResource(R.string.tab_mylist),
                 titles = state.watchlist,
                 onOpen = onOpenTitle
             )
         }
-        items(state.suggestions, key = { "suggestion-${it.seed.id}" }) { suggestion ->
+        items(
+            state.suggestions,
+            key = { "suggestion-${it.seed.id}" },
+            contentType = { "shelf" }
+        ) { suggestion ->
             PosterRow(
                 heading = stringResource(R.string.because_you_watched, suggestion.seed.name),
                 titles = suggestion.titles,
                 onOpen = onOpenTitle
             )
         }
-        item(key = "recent") {
+        item(key = "recent", contentType = "shelf") {
             PosterRow(
                 heading = stringResource(R.string.row_recent),
                 titles = state.recentlyAdded,
@@ -136,7 +142,9 @@ private fun ContinueSection(
         )
         Spacer(Modifier.height(10.dp))
         LazyRow(
-            modifier = Modifier.focusGroup(),
+            // Like every other shelf: coming back to this row puts the cursor on the card it left,
+            // not on whichever card happens to sit under the row it came from. See `PosterRow`.
+            modifier = Modifier.focusRestorer().focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(skin.posterGap),
             contentPadding = PaddingValues(horizontal = skin.screenPadding, vertical = 12.dp)
         ) {

@@ -43,7 +43,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -191,6 +191,11 @@ fun PosterCard(
  *
  * Scaling a child leaves the card's own bounds exactly the size the row measured them, so there is
  * nothing left to chase. The zoom is drawing; drawing is all it should ever have been.
+ *
+ * And it is read while drawing, too: the animated value goes into the `graphicsLayer` block rather
+ * than into `Modifier.scale`, so each of the zoom's frames only redraws the layer. Read here in the
+ * body, every frame of the animation was a recomposition as well — twice per cursor move, since one
+ * card grows as the other shrinks — which on a 256 MB box is work taken from the decoder for nothing.
  */
 @Composable
 fun ZoomOnFocus(
@@ -199,11 +204,17 @@ fun ZoomOnFocus(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val scale by animateFloatAsState(
+    val scale = animateFloatAsState(
         targetValue = if (focused) LocalSkin.current.focusScale else 1f,
         label = label
     )
-    Column(modifier = modifier.scale(scale), content = content)
+    Column(
+        modifier = modifier.graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
+        content = content
+    )
 }
 
 /**
@@ -509,11 +520,11 @@ fun TabBar(
     modifier: Modifier = Modifier,
     autoFocus: Boolean = false,
     /**
-     * A long press on a chip. Every entry ignores it except `TV`, which asks the server whether
-     * there is a release waiting — see [Container.checkForUpdate]. Routed here rather than baked
-     * into `TabChip` itself, so this file stays ignorant of which destination that is.
+     * Drawn right after the pinned chip for this tab, when there is one. It is how the update arrow
+     * sits beside `TV` without this file having to know that either of them exists.
      */
-    onLongClick: (Tab) -> Unit = {},
+    accessoryAfter: Tab? = null,
+    accessory: @Composable () -> Unit = {},
     /** Pinned to the right, past the symbols. The profile chip lives here. */
     trailing: @Composable () -> Unit = {}
 ) {
@@ -550,7 +561,6 @@ fun TabBar(
                     entry = entry,
                     selected = entry.tab == selected,
                     onClick = { onSelect(entry.tab) },
-                    onLongClick = { onLongClick(entry.tab) },
                     modifier = chipModifier(entry)
                 )
             }
@@ -560,9 +570,9 @@ fun TabBar(
                 entry = entry,
                 selected = entry.tab == selected,
                 onClick = { onSelect(entry.tab) },
-                onLongClick = { onLongClick(entry.tab) },
                 modifier = chipModifier(entry)
             )
+            if (entry.tab == accessoryAfter) accessory()
         }
         trailing()
     }
@@ -649,6 +659,32 @@ private fun TabChip(
 }
 
 /**
+ * A newer version of the app, already downloaded: pressing it opens Android's install prompt.
+ *
+ * The same pill as the chips beside it, so the remote reaches it like any other, but yellow — see
+ * [VideoclubColors.Update]. It only exists while there is something to install, which is what keeps
+ * it from being one more permanent thing in the strip.
+ */
+@Composable
+fun UpdateChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.install_update)
+    Pill(
+        filled = false,
+        onClick = onClick,
+        modifier = modifier,
+        horizontalPadding = 12.dp,
+        tint = VideoclubColors.Update
+    ) { foreground ->
+        Icon(
+            imageVector = UpdateIcon,
+            contentDescription = label,
+            tint = foreground,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/**
  * The one chip shape in the app, and the three states it has.
  *
  * Focus is louder than selection on purpose: on a television the only thing the viewer needs to see
@@ -663,6 +699,8 @@ private fun Pill(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     horizontalPadding: Dp = 16.dp,
+    /** A colour of its own for when the chip is not focused. Only the update arrow has one. */
+    tint: Color? = null,
     content: @Composable (foreground: Color) -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -673,6 +711,7 @@ private fun Pill(
         // indistinguishable from a chip that simply is not selected.
         !enabled -> VideoclubColors.TextDisabled
         focused -> VideoclubColors.Surface
+        tint != null -> tint
         filled -> VideoclubColors.TextPrimary
         else -> VideoclubColors.TextSecondary
     }

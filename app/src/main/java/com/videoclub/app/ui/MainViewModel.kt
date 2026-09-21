@@ -376,8 +376,12 @@ class MainViewModel(private val container: Container) : ViewModel() {
 
     fun retrySync() = catalog.refresh(System.currentTimeMillis())
 
-    /** A long press on `TV`: see [Container.checkForUpdate]. */
-    fun checkForUpdate() = container.checkForUpdate()
+    /** Whether the yellow arrow is up: a newer release, downloaded and checked. See [Updater]. */
+    val updateReady: StateFlow<Boolean> = container.updater.ready
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun installUpdate() = container.installUpdate()
 
     /**
      * Re-reads whatever the browsing screen is showing, and only ever once at a time.

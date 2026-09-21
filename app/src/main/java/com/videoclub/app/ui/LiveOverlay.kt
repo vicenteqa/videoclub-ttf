@@ -218,9 +218,10 @@ internal fun ChannelList(
  * television misbehaving, and asking them to scroll first is one more instruction — and it exists
  * only while the list is open, so it never covers the picture.
  *
- * Holding OK while the list is open — the D-pad equivalent of a long press, over exactly this line
- * — asks the server whether there is a release waiting; see [Container.checkForUpdate]. Nothing
- * about that shows up here: it either lands on Android's own install prompt or does nothing.
+ * In simple mode, holding OK while the list is open — the D-pad equivalent of a long press, over
+ * exactly this line — asks the server whether there is a release waiting; see
+ * [Container.checkForUpdate]. Nothing about that shows up here: it either lands on Android's own
+ * install prompt or does nothing. The video shop has the yellow arrow beside `TV` instead.
  */
 @Composable
 private fun AccountFooter(house: String, user: String, skin: LiveSkin) {

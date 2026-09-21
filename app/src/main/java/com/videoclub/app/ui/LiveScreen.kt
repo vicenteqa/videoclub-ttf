@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -125,7 +125,7 @@ fun LiveScreen(
             httpClient = container.http,
             userAgent = container.provider.userAgent,
             client = container.client,
-            scope = container.scope,
+            parentScope = container.scope,
             profile = profile,
             onSettled = { channel ->
                 container.reporter.settledOn(channel.label, WatchReporter.Kind.Channel)
@@ -133,11 +133,11 @@ fun LiveScreen(
         )
     }
 
-    val channels by container.liveChannels.channels.collectAsState()
-    val refreshState by container.liveChannels.refreshState.collectAsState()
-    val guide by container.epg.guide.collectAsState()
-    val playback by player.state.collectAsState()
-    val videoQuality by player.videoQuality.collectAsState()
+    val channels by container.liveChannels.channels.collectAsStateWithLifecycle()
+    val refreshState by container.liveChannels.refreshState.collectAsStateWithLifecycle()
+    val guide by container.epg.guide.collectAsStateWithLifecycle()
+    val playback by player.state.collectAsStateWithLifecycle()
+    val videoQuality by player.videoQuality.collectAsStateWithLifecycle()
 
     /**
      * A coarse clock. The guide only ever needs to know which programme is on now, and a programme
@@ -202,7 +202,7 @@ fun LiveScreen(
     // the container; all that happens here is finding the row and tuning it. A label this household
     // does not have is dropped silently: the channel was sent from somewhere else and nobody is
     // watching this screen waiting for an error message.
-    val tuneTo by container.tuneTo.collectAsState()
+    val tuneTo by container.tuneTo.collectAsStateWithLifecycle()
     LaunchedEffect(tuneTo, channels) {
         val wanted = tuneTo ?: return@LaunchedEffect
         val index = channels.indexOfFirst { it.label.equals(wanted, ignoreCase = true) }
@@ -291,7 +291,7 @@ fun LiveScreen(
     // switched off with its own remote, which never calls `onStop`. `ScreenWatch`, via the
     // container, is the only source for that — see its own docstring for why it takes three signals
     // to answer one question.
-    val screenOn by container.screenOn.collectAsState()
+    val screenOn by container.screenOn.collectAsStateWithLifecycle()
     LaunchedEffect(screenOn) {
         if (screenOn) player.resume() else player.pause()
     }
@@ -352,7 +352,9 @@ fun LiveScreen(
                     onConfirmSelection = ::confirmSelection,
                     onHold = ::startRefresh,
                     onDismissRefreshResult = ::dismissRefreshResult,
-                    onHoldOverList = { container.checkForUpdate() }
+                    // Only where there is no strip to carry the yellow arrow: simple mode. In the
+                    // videoclub the arrow is the way, and a second, hidden one is not needed.
+                    onHoldOverList = { if (container.provider.simple) container.checkForUpdate() }
                 )
             }
     ) {
@@ -552,8 +554,8 @@ private fun handleLiveKey(
     onHold: () -> Unit,
     onDismissRefreshResult: () -> Unit,
     /** Held OK over the channel list — where the account line sits, at its foot — asks the server
-     *  whether there is a release waiting, the D-pad equivalent of long-pressing `TV`. See
-     *  [Container.checkForUpdate]. */
+     *  whether there is a release waiting. Simple mode only, which has no strip for the update
+     *  arrow. See [Container.checkForUpdate]. */
     onHoldOverList: () -> Unit
 ): Boolean {
     val isOk = event.key == Key.DirectionCenter || event.key == Key.Enter ||

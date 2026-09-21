@@ -44,25 +44,34 @@ jobs:
           cache: gradle
 
       - name: SDK de Android
-        uses: android-actions/setup-android@v3
+        # De terceros: fijada a un commit y no a una etiqueta, que su dueño puede mover a otro
+        # código cuando quiera. Esta es la v3.2.2, la misma que daba `@v3`.
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           # Sin `tools`: ver ci.yml.
           packages: platform-tools
 
       - name: Clave del VPS
+        # Secretos y variables por entorno, nunca pegados en el guion: `${{ }}` se sustituye antes de
+        # que bash lo lea, así que una comilla dentro de la clave rompería el comando.
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ vars.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Descodificador FFmpeg
         # Precompilado una vez y guardado en el VPS (ver build-ffmpeg-decoder.sh): reconstruirlo en
         # cada build tarda muy largo y necesita NDK — sólo hace falta volver a subirlo ahí el día
         # que cambie la versión de media3 en gradle/libs.versions.toml.
+        env:
+          VPS_SSH: ${{ vars.VPS_SSH }}
         run: |
           mkdir -p app/libs
-          scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
+          scp "$VPS_SSH:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
       - name: Tests
         # Con el flavour `general` (ver ci.yml), antes de traer ninguna casa: así corren una vez y no una
@@ -70,21 +79,32 @@ jobs:
         run: ./gradlew --no-daemon testGeneralDebugUnitTest
 
       - name: Keystore de release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           mkdir -p keystore
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore/videoclub-release.p12
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore/videoclub-release.p12
 
       - name: local.properties
+        # Por entorno también. Pegadas en el heredoc, bash expandía lo que hubiera dentro: una
+        # contraseña con un `$` o una comilla invertida llegaba a Gradle cambiada, o ejecutaba algo.
+        # Las variables se expanden una sola vez y su contenido ya no se vuelve a leer.
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          PANEL_URL: ${{ secrets.PANEL_URL }}
+          PANEL_USER: ${{ secrets.PANEL_USER }}
+          PANEL_PASSWORD: ${{ secrets.PANEL_PASSWORD }}
+          VPS_SSH: ${{ vars.VPS_SSH }}
         run: |
           cat > local.properties <<EOF
           sdk.dir=$ANDROID_HOME
           keystore.path=keystore/videoclub-release.p12
           keystore.alias=videoclub
-          keystore.password=${{ secrets.KEYSTORE_PASSWORD }}
-          panel.url=${{ secrets.PANEL_URL }}
-          panel.user=${{ secrets.PANEL_USER }}
-          panel.password=${{ secrets.PANEL_PASSWORD }}
-          vps.ssh=${{ vars.VPS_SSH }}
+          keystore.password=$KEYSTORE_PASSWORD
+          panel.url=$PANEL_URL
+          panel.user=$PANEL_USER
+          panel.password=$PANEL_PASSWORD
+          vps.ssh=$VPS_SSH
           EOF
 
       - name: Casas (desde el panel)

@@ -41,6 +41,7 @@ import com.videoclub.app.data.DeviceProfile
 import com.videoclub.app.data.HomeRow
 import com.videoclub.app.data.Profile
 import com.videoclub.app.data.SyncState
+import com.videoclub.app.data.Kind
 import com.videoclub.app.data.Title
 import kotlinx.coroutines.launch
 import com.videoclub.app.data.SyncProgress
@@ -73,8 +74,9 @@ fun TopStrip(
     onSelectTab: (Tab) -> Unit,
     onSwitchViewer: () -> Unit,
     onRetry: () -> Unit,
-    /** A long press on `TV`: see [Container.checkForUpdate]. */
-    onCheckUpdate: () -> Unit,
+    /** Whether a newer release is downloaded and waiting: the yellow arrow beside `TV`. */
+    updateReady: Boolean = false,
+    onInstallUpdate: () -> Unit = {},
     autoFocus: Boolean = false
 ) {
     // While the videoclub is being built, every chip that leads into the catalogue leads to the
@@ -124,7 +126,8 @@ fun TopStrip(
             selected = tab,
             onSelect = onSelectTab,
             autoFocus = autoFocus,
-            onLongClick = { pressed -> if (pressed == Tab.Live) onCheckUpdate() },
+            accessoryAfter = Tab.Live.takeIf { updateReady },
+            accessory = { UpdateChip(onClick = onInstallUpdate) },
             trailing = {
                 ProfileChip(
                     profile = viewer,
@@ -197,13 +200,7 @@ fun BrowseScreen(
                     autoFocus = profile != DeviceProfile.Tv
                 )
 
-                Tab.MyList ->
-                    if (state.watchlist.isEmpty()) EmptyMessage(stringResource(R.string.mylist_empty))
-                    else TitleGrid(
-                        titles = state.watchlist,
-                        onOpenTitle = onOpenTitle,
-                        showKind = true
-                    )
+                Tab.MyList -> WatchlistRows(titles = state.watchlist, onOpenTitle = onOpenTitle)
 
                 // Unreachable: the television is not a body this strip switches between, it is a
                 // screen of its own that the strip happens to be the way into. Nothing ever puts a
@@ -421,7 +418,9 @@ private fun CategoryRows(
         contentPadding = PaddingValues(bottom = skin.rowGap)
     ) {
         if (state.continueWatching.isNotEmpty()) {
-            item(key = "continue") {
+            // Two kinds of shelf, and each is only ever recycled into its own kind: a resume row
+            // rebuilt as a poster row is a whole composition thrown away mid-scroll.
+            item(key = "continue", contentType = "continue") {
                 ContinueRow(
                     heading = stringResource(R.string.row_continue),
                     entries = state.continueWatching,
@@ -431,7 +430,11 @@ private fun CategoryRows(
                 )
             }
         }
-        itemsIndexed(state.rows, key = { _, row -> row.heading }) { index, row ->
+        itemsIndexed(
+            state.rows,
+            key = { _, row -> row.heading },
+            contentType = { _, _ -> "shelf" }
+        ) { index, row ->
             PosterRow(
                 heading = row.heading,
                 titles = row.titles,
@@ -441,6 +444,50 @@ private fun CategoryRows(
                 modifier = shelfKeys(index + resume),
                 focus = cursor[index + resume]
             )
+        }
+    }
+}
+
+/**
+ * `Mi lista`, as two shelves: the series and the films.
+ *
+ * It used to be one wall with a `Serie` sticker on every other poster, which is a list that has to
+ * be read card by card to find out which kind of evening it offers. Two shelves say it with the
+ * heading — the same two words as the tabs — and they scroll sideways like every other row in the
+ * app, so the cursor moves here exactly as it does on `Inicio`. A kind with nothing saved simply has
+ * no shelf.
+ */
+@Composable
+private fun WatchlistRows(titles: List<Title>, onOpenTitle: (Title) -> Unit) {
+    if (titles.isEmpty()) {
+        EmptyMessage(stringResource(R.string.mylist_empty))
+        return
+    }
+    val skin = LocalSkin.current
+    val series = remember(titles) { titles.filter { it.kind == Kind.Series } }
+    val films = remember(titles) { titles.filter { it.kind == Kind.Movie } }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(skin.rowGap),
+        contentPadding = PaddingValues(top = skin.rowGap / 2, bottom = skin.rowGap)
+    ) {
+        if (series.isNotEmpty()) {
+            item(key = "series", contentType = "shelf") {
+                PosterRow(
+                    heading = stringResource(R.string.tab_series),
+                    titles = series,
+                    onOpen = onOpenTitle
+                )
+            }
+        }
+        if (films.isNotEmpty()) {
+            item(key = "films", contentType = "shelf") {
+                PosterRow(
+                    heading = stringResource(R.string.tab_movies),
+                    titles = films,
+                    onOpen = onOpenTitle
+                )
+            }
         }
     }
 }

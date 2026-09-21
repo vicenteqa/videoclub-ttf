@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,7 +37,7 @@ fun VideoclubRoot(
     onExit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val screen by viewModel.screen.collectAsState()
+    val screen by viewModel.screen.collectAsStateWithLifecycle()
 
     BackHandler { if (!viewModel.back()) onExit() }
 
@@ -55,7 +55,7 @@ fun VideoclubRoot(
     // into the APK any more, so before the hosted document arrives there is no shop to show and no
     // household to attribute a viewing to — a spinner is the honest answer, and the wait is the one
     // paid at startup rather than halfway through an evening.
-    val startup by viewModel.startup.collectAsState()
+    val startup by viewModel.startup.collectAsStateWithLifecycle()
     when (startup) {
         Startup.Checking -> {
             Box(modifier = inset.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -92,8 +92,8 @@ fun VideoclubRoot(
 
     // Nothing below this line belongs to anybody until the app knows who is watching: the rows are
     // the same for both of them, but the progress written while they are on screen is not.
-    val viewer = viewModel.viewer.collectAsState().value
-    val people by viewModel.profiles.collectAsState()
+    val viewer = viewModel.viewer.collectAsStateWithLifecycle().value
+    val people by viewModel.profiles.collectAsStateWithLifecycle()
     if (viewer == null) {
         ProfileScreen(
             people = people,
@@ -109,8 +109,8 @@ fun VideoclubRoot(
     // the app, rather than inside the card that was held: a card is recycled the moment its row
     // scrolls, and it has neither a whole screen to darken nor any way to keep the remote off the
     // row behind it. Only one of the two can be open at a time, since both need a held card.
-    val menu by viewModel.menu.collectAsState()
-    val pendingForget by viewModel.forget.collectAsState()
+    val menu by viewModel.menu.collectAsStateWithLifecycle()
+    val pendingForget by viewModel.forget.collectAsStateWithLifecycle()
 
     val posterMenu = menu?.let { open ->
         MenuContent(
@@ -156,10 +156,7 @@ fun VideoclubRoot(
             if (posterMenu != null) viewModel.closeMenu() else viewModel.cancelForget()
         }
     ) {
-        VideoclubScreen(
-            container, viewModel, screen, viewer, people, inset, modifier,
-            onCheckUpdate = viewModel::checkForUpdate
-        )
+        VideoclubScreen(container, viewModel, screen, viewer, people, inset, modifier)
     }
 }
 
@@ -177,8 +174,7 @@ private fun VideoclubScreen(
     viewer: Profile,
     people: List<Profile>,
     inset: Modifier,
-    modifier: Modifier,
-    onCheckUpdate: () -> Unit
+    modifier: Modifier
 ) {
     when (val current = screen) {
         // The three screens that keep the strip: browsing, a shelf, and a film. Whatever is under
@@ -186,8 +182,9 @@ private fun VideoclubScreen(
         is Screen.Browse, is Screen.Grid, is Screen.Detail -> Column(
             modifier = inset.fillMaxSize().background(VideoclubColors.Surface)
         ) {
-            val tab by viewModel.tab.collectAsState()
-            val syncState by viewModel.syncState.collectAsState()
+            val tab by viewModel.tab.collectAsStateWithLifecycle()
+            val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+            val updateReady by viewModel.updateReady.collectAsStateWithLifecycle()
 
             TopStrip(
                 tab = tab,
@@ -197,15 +194,16 @@ private fun VideoclubScreen(
                 onSelectTab = viewModel::selectTab,
                 onSwitchViewer = viewModel::switchViewer,
                 onRetry = viewModel::retrySync,
-                onCheckUpdate = onCheckUpdate,
+                updateReady = updateReady,
+                onInstallUpdate = viewModel::installUpdate,
                 autoFocus = viewModel.deviceProfile == DeviceProfile.Tv && current is Screen.Browse
             )
 
             when (current) {
                 is Screen.Browse -> {
-                    val browse by viewModel.browse.collectAsState()
-                    val query by viewModel.query.collectAsState()
-                    val results by viewModel.results.collectAsState()
+                    val browse by viewModel.browse.collectAsStateWithLifecycle()
+                    val query by viewModel.query.collectAsStateWithLifecycle()
+                    val results by viewModel.results.collectAsStateWithLifecycle()
 
                     BrowseScreen(
                         tab = tab,
@@ -227,7 +225,7 @@ private fun VideoclubScreen(
                 }
 
                 is Screen.Grid -> {
-                    val titles by viewModel.grid.collectAsState()
+                    val titles by viewModel.grid.collectAsStateWithLifecycle()
                     GridScreen(
                         heading = current.heading,
                         titles = titles,
@@ -237,7 +235,7 @@ private fun VideoclubScreen(
                 }
 
                 is Screen.Detail -> {
-                    val state by viewModel.detail.collectAsState()
+                    val state by viewModel.detail.collectAsStateWithLifecycle()
                     val detail = state
                     if (detail == null || detail.title.id != current.titleId) {
                         EmptyMessage(

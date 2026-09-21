@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,7 +29,9 @@ import com.videoclub.app.ui.VideoclubTheme
  *
  * It measures the window, hands that to the theme and gets out of the way.
  *
- * A phone is pinned upright and turned on its side only for the player — see [isPhone]. A television
+ * A phone turns with the hand, like a tablet, and is put on its side for the player — see [isPhone].
+ * It used to be pinned upright everywhere but the player; holding a phone sideways on a sofa is how
+ * a phone gets used for a film, and the page that chooses the film should not fight it. A television
  * is pinned on its side and stays there, film or no film: there is no other way to hold a television,
  * and a set-top box that reports itself as a phone-shaped device must not be allowed to serve a
  * portrait page to a screen on a wall. A tablet is left alone, because it really is used both ways.
@@ -73,26 +75,31 @@ class MainActivity : ComponentActivity() {
 
         requestedOrientation = when {
             container.deviceProfile == DeviceProfile.Tv -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            isPhone -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            // `USER` rather than `SENSOR`: it follows the phone round, but not past the rotation
+            // lock of somebody reading in bed.
+            isPhone -> ActivityInfo.SCREEN_ORIENTATION_USER
             else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
 
         setContent {
             // Read from the configuration rather than from the display, so a tablet in split screen
-            // gets the phone layout it actually has room for.
-            val widthDp = LocalConfiguration.current.screenWidthDp
+            // gets the phone layout it actually has room for. The shorter side and not the width:
+            // a phone turned sideways is 800dp wide and 360dp tall, and the tablet sizes the width
+            // would pick for it leave room for one row of posters and nothing else.
+            val configuration = LocalConfiguration.current
+            val shortestSideDp = minOf(configuration.screenWidthDp, configuration.screenHeightDp)
 
             // `LiveScreen` reads `LocalSkin` for its notices (`Cargando canales…`, the rebuild
             // dialog) whichever mode draws it, so the theme wraps both branches rather than only
             // the videoclub one.
-            VideoclubTheme(profile = container.deviceProfile, widthDp = widthDp) {
+            VideoclubTheme(profile = container.deviceProfile, shortestSideDp = shortestSideDp) {
                 // The mode is decided once — hence the `remember`, which survives recompositions
                 // and makes "at startup" true rather than a promise — but not before its time: on a
                 // freshly installed device the cache does not know which household it belongs to
                 // yet, so reading it in `onCreate` would give a simple household the video shop
                 // until the next launch. It waits until the container knows whose television this
                 // is, which is the same wait `VideoclubRoot` already pays.
-                val startup by container.startup.collectAsState()
+                val startup by container.startup.collectAsStateWithLifecycle()
                 var simple by remember { mutableStateOf<Boolean?>(null) }
                 if (simple == null && startup != Startup.Checking) {
                     simple = container.settings.current.simple
@@ -147,7 +154,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Turns the phone on its side for a film and back afterwards.
+     * Turns the phone on its side for a film, and hands it back to the hand afterwards.
      *
      * `SENSOR_LANDSCAPE` rather than `LANDSCAPE` so that a phone held the other way round still gets
      * the picture the right way up. Called by the player screen; a no-op on anything but a handset.
@@ -155,7 +162,7 @@ class MainActivity : ComponentActivity() {
     fun setPlaybackOrientation(playing: Boolean) {
         if (!isPhone) return
         requestedOrientation = if (playing) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        else ActivityInfo.SCREEN_ORIENTATION_USER
     }
 
     private companion object {

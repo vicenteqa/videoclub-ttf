@@ -29,6 +29,13 @@ object VideoclubColors {
     /** A chip that is on screen but cannot be pressed. Dim enough to read as off, not as missing. */
     val TextDisabled = Color(0xFF4A4A56)
     val PosterPlaceholder = Color(0xFF1D1D26)
+    /**
+     * The update arrow, and nothing else. Yellow because it is the one thing up here that is neither
+     * a destination nor the cursor, and the red is already taken by "this is what you pressed".
+     */
+    val Update = Color(0xFFFFC83D)
+    /** A title that is on `Mi lista`: the tick on its page turns this green. */
+    val InList = Color(0xFF2E9E57)
 
     /**
      * One colour per person, and the only place the palette above is broken on purpose.
@@ -90,10 +97,11 @@ val LocalSkin: ProvidableCompositionLocal<Skin> get() = LocalSkinInternal
 @Composable
 fun VideoclubTheme(
     profile: DeviceProfile,
-    widthDp: Int,
+    /** The window's shorter side, so that turning a device round never changes its layout. */
+    shortestSideDp: Int,
     content: @Composable () -> Unit
 ) {
-    val skin = skinFor(profile, widthDp)
+    val skin = skinFor(profile, shortestSideDp)
     CompositionLocalProvider(LocalSkinInternal provides skin) {
         MaterialTheme(
             colorScheme = MaterialTheme.colorScheme.copy(
@@ -115,7 +123,7 @@ fun VideoclubTheme(
  * from a sofa, and the posters are wide enough that seven fit across a 1080p row — any more and
  * the artwork stops being legible, which defeats the point of a poster wall.
  */
-private fun skinFor(profile: DeviceProfile, widthDp: Int): Skin = when {
+private fun skinFor(profile: DeviceProfile, shortestSideDp: Int): Skin = when {
     profile == DeviceProfile.Tv -> Skin(
         screenPadding = 48.dp,
         rowGap = 36.dp,
@@ -132,7 +140,7 @@ private fun skinFor(profile: DeviceProfile, widthDp: Int): Skin = when {
         button = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
     )
 
-    widthDp >= TABLET_WIDTH_DP -> Skin(
+    shortestSideDp >= TABLET_WIDTH_DP -> Skin(
         screenPadding = 28.dp,
         rowGap = 28.dp,
         posterGap = 14.dp,

@@ -253,6 +253,10 @@ class Container(context: Context) {
             }
 
             _startup.value = Startup.Ready
+            // The document was read just above; asking the updater now, rather than on the first
+            // poll two minutes from now, is what puts the yellow arrow up as the app opens instead
+            // of while somebody is already halfway into choosing a film.
+            updater.consider(settings.apkRelease, _screenOn.value)
             // A "simple" household never shows the video shop: not the catalogue — nine hundred
             // requests and a couple of minutes of CPU — and not "Continue watching" either, which
             // has no screen to appear on and nothing writing to it. What does go on talking to the
@@ -364,8 +368,8 @@ class Container(context: Context) {
     }
 
     /**
-     * A person asked, directly — long-press on `TV`, or on the account line in the channel list —
-     * rather than waiting for the next poll. Fetches the document fresh and hands whatever it says
+     * A person asked, directly — in simple mode, by holding OK on the account line in the channel
+     * list — rather than waiting for the next poll. Fetches the document fresh and hands whatever it says
      * about a release straight to [Updater.checkNow]: newer than this build, and it goes straight to
      * Android's own install prompt; otherwise nothing happens, silently — nobody who did not ask
      * should see a "you are already up to date" message either.
@@ -379,6 +383,9 @@ class Container(context: Context) {
             updater.checkNow(settings.apkRelease)
         }
     }
+
+    /** The yellow arrow beside `TV`: the release is already on disk. See [Updater.installReady]. */
+    fun installUpdate() = updater.installReady()
 
     /**
      * Keeps asking, quietly, for as long as there is no account.

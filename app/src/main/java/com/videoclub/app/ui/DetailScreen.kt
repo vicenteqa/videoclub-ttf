@@ -16,12 +16,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +46,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -223,28 +231,44 @@ private fun Header(
                 Label(text = it, style = skin.caption, color = VideoclubColors.Accent, maxLines = 1)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Symbols rather than words, the way every streaming app has taught the house to read
+            // them: the red circle plays, the circular arrow starts again, and `+` becomes a green
+            // `✓` once the title is on the list — pressing the tick takes it off again. The words are
+            // still there as the spoken names, and as a line of small print under the two that are
+            // not self-explanatory.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                RoundAction(
+                    icon = Icons.Default.PlayArrow,
+                    description = if (resumeAt != null) {
+                        stringResource(R.string.resume, clock(resumeAt.positionMillis))
+                    } else {
+                        stringResource(R.string.play)
+                    },
+                    // Where it picks up, which is the one fact the resume button has to carry.
+                    caption = resumeAt?.let { clock(it.positionMillis) },
+                    onClick = { onPlay(resumeAt != null) },
+                    fill = VideoclubColors.Accent,
+                    modifier = Modifier.focusRequester(playFocus)
+                )
                 if (resumeAt != null) {
-                    ActionButton(
-                        text = stringResource(R.string.resume, clock(resumeAt.positionMillis)),
-                        onClick = { onPlay(true) },
-                        filled = true,
-                        modifier = Modifier.focusRequester(playFocus)
-                    )
-                    ActionButton(text = stringResource(R.string.play), onClick = { onPlay(false) })
-                } else {
-                    ActionButton(
-                        text = stringResource(R.string.play),
-                        onClick = { onPlay(false) },
-                        filled = true,
-                        modifier = Modifier.focusRequester(playFocus)
+                    RoundAction(
+                        icon = ReplayIcon,
+                        description = stringResource(R.string.play_from_start),
+                        caption = stringResource(R.string.play_from_start),
+                        onClick = { onPlay(false) }
                     )
                 }
-                ActionButton(
-                    text = stringResource(
-                        if (state.inWatchlist) R.string.in_list else R.string.add_to_list
+                RoundAction(
+                    icon = if (state.inWatchlist) Icons.Default.Check else Icons.Default.Add,
+                    description = stringResource(
+                        if (state.inWatchlist) R.string.remove_from_list else R.string.add_to_list_long
                     ),
-                    onClick = onToggleWatchlist
+                    caption = stringResource(R.string.add_to_list),
+                    onClick = onToggleWatchlist,
+                    fill = VideoclubColors.InList.takeIf { state.inWatchlist }
                 )
             }
 
@@ -258,6 +282,74 @@ private fun Header(
         }
     }
 }
+
+/**
+ * A round button with a symbol in it, and optionally a line of small print underneath.
+ *
+ * [fill] makes it a solid circle with a white symbol: red for play, the one thing on the page meant
+ * to be pressed, and green for a title already on the list, so the answer to "is it saved?" reads
+ * from across a room. Without one it is an outline. All of them are the same size, so the row reads
+ * as one set of controls. Focus turns any of them white, which is the same "this is where the cursor
+ * is" every chip in the app uses.
+ */
+@Composable
+private fun RoundAction(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fill: Color? = null,
+    caption: String? = null
+) {
+    val skin = LocalSkin.current
+    var focused by remember { mutableStateOf(false) }
+    val background = when {
+        focused -> VideoclubColors.TextPrimary
+        fill != null -> fill
+        else -> Color.Transparent
+    }
+    val tint = if (focused) VideoclubColors.Surface else VideoclubColors.TextPrimary
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(ACTION_SIZE)
+                .clip(CircleShape)
+                .background(background)
+                .then(
+                    if (fill == null && !focused) {
+                        Modifier.border(2.dp, VideoclubColors.TextSecondary, CircleShape)
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = tint,
+                modifier = Modifier.size(ACTION_SIZE * 0.55f)
+            )
+        }
+        if (caption != null) {
+            Label(
+                text = caption,
+                style = skin.caption,
+                color = if (focused) VideoclubColors.TextPrimary else VideoclubColors.TextSecondary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private val ACTION_SIZE = 56.dp
 
 /** One chip per encode the supplier published. Only drawn when there is a real choice to make. */
 @Composable

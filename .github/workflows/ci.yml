@@ -35,24 +35,33 @@ jobs:
           cache: gradle
 
       - name: SDK de Android
-        uses: android-actions/setup-android@v3
+        # De terceros: fijada a un commit y no a una etiqueta, que su dueño puede mover a otro
+        # código cuando quiera. Esta es la v3.2.2, la misma que daba `@v3`.
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           # Por defecto pide también `tools`, que Google ha retirado del repositorio: sdkmanager falla
           # con "Failed to find package 'tools'". Gradle ya descarga plataformas y build-tools solo.
           packages: platform-tools
 
       - name: Clave del VPS
+        # Secretos y variables por entorno, nunca pegados en el guion: `${{ }}` se sustituye antes de
+        # que bash lo lea, así que una comilla dentro de la clave rompería el comando.
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ vars.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Descodificador FFmpeg
         # El mismo .aar que usa publish.yml: sin él app/build.gradle.kts se niega a configurar.
+        env:
+          VPS_SSH: ${{ vars.VPS_SSH }}
         run: |
           mkdir -p app/libs
-          scp "${{ vars.VPS_SSH }}:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
+          scp "$VPS_SSH:/var/lib/simpletv-admin/build-assets/media3-decoder-ffmpeg.aar" app/libs/
 
       - name: Tests y compilación
         run: ./gradlew --no-daemon testGeneralDebugUnitTest assembleGeneralRelease

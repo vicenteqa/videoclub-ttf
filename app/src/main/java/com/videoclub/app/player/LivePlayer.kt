@@ -20,6 +20,8 @@ import com.videoclub.app.data.VodClient
 import com.videoclub.app.data.feedsFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -101,7 +103,8 @@ class LivePlayer(
     httpClient: OkHttpClient,
     userAgent: String,
     private val client: VodClient,
-    private val scope: CoroutineScope,
+    /** The app's scope. Every timer here runs in a child of it that [release] cancels. */
+    parentScope: CoroutineScope,
     private val profile: DeviceProfile,
     /**
      * Fires when a channel has been on long enough to count as what somebody is watching.
@@ -112,6 +115,19 @@ class LivePlayer(
      */
     private val onSettled: ((Channel) -> Unit)? = null
 ) {
+
+    /**
+     * This player's own lifetime inside the app's.
+     *
+     * The timers below are cancelled one by one as they go, but the question to the supplier about a
+     * full account is not tracked by any of them, and a player that has been released must not go
+     * on writing state or reporting a channel to the panel. Cancelling one child scope in [release]
+     * is what makes "released" mean nothing of it is left running, rather than a list to keep in
+     * step with every `launch` added here.
+     */
+    private val scope = CoroutineScope(
+        parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job])
+    )
 
     private val _state = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -333,6 +349,7 @@ class LivePlayer(
         cancelStallWatchdog()
         cancelPictureWatchdog()
         cancelSettleTimer()
+        scope.cancel()
         exoPlayer.release()
     }
 

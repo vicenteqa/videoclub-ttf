@@ -8,6 +8,7 @@
     <string name="tab_search">Buscar</string>
     <string name="tab_mylist">Mi lista</string>
     <string name="tab_live">TV</string>
+    <string name="install_update">Instalar actualización</string>
 
     <string name="row_continue">Seguir viendo</string>
     <string name="row_mylist">Mi lista</string>
@@ -63,6 +64,7 @@
     <string name="remove_from_list">Quitar de Mi lista</string>
     <string name="open_title">Abrir</string>
     <string name="in_list">En mi lista</string>
+    <string name="play_from_start">Desde el principio</string>
     <string name="quality">Calidad</string>
     <string name="seasons">Temporadas</string>
     <string name="season">Temporada %1$d</string>

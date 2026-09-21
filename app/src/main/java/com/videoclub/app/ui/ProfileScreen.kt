@@ -22,7 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -82,7 +82,9 @@ private fun ProfileAvatar(
 ) {
     val skin = LocalSkin.current
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
+    // Read in the layer block rather than here, so the zoom redraws instead of recomposing: see
+    // [ZoomOnFocus].
+    val scale = animateFloatAsState(
         targetValue = if (focused) skin.focusScale else 1f,
         label = "profileScale"
     )
@@ -94,7 +96,10 @@ private fun ProfileAvatar(
 
     Column(
         modifier = modifier
-            .scale(scale)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick),

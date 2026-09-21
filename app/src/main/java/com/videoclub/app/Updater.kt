@@ -18,6 +18,9 @@ import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,16 +33,24 @@ import okhttp3.Request
  * A normal app cannot install an APK without the system's own confirmation dialog, and this does
  * not try to get around that. What makes an install silent here is [UpdateAdminReceiver]: once this
  * app is the device's owner, a [PackageInstaller] session it opens commits itself, with nobody in
- * the room to tap anything. That path is [consider], and it is the only thing this class does on
- * its own — without device owner, nothing happens here until a person asks, with [checkNow].
+ * the room to tap anything. That path is [consider], and it is the only thing this class ever
+ * installs on its own.
  *
- * ## Why there is no passive "an update is waiting" state
+ * ## Why every device downloads ahead of being asked
  *
- * There used to be one: a badge, downloading in the background and sitting there until tapped. It
- * was one more thing for a screen already carrying a video shop, an EPG and a channel list to
- * explain — and everyone who would ever use it already knows to ask, in person, before it does
- * anything. So [checkNow] asks the server there and then, and either hands the release straight to
- * Android's own install prompt or does nothing at all — no state to carry between the two.
+ * Everywhere else the install needs a tap, and the tap used to be where the wait began: a held
+ * button, then twenty megabytes, then the prompt — long enough that the press looked as if it had done
+ * nothing and got repeated. So [consider] now fetches the release on every device as soon as the
+ * panel publishes it, checks it against its hash, and only then says so through [ready], which is
+ * what puts the yellow arrow beside `TV`. By the time anybody can see the arrow the file is already
+ * here, and pressing it goes straight to Android's own install prompt with [installReady].
+ *
+ * This is the badge that was once taken out for being one more thing to explain. It is back because
+ * the household asked for it, and it stays as quiet as it can: it does not exist until there is
+ * something to install, and it goes away on its own once there is not.
+ *
+ * [checkNow] is still there for simple mode, which has no strip to put an arrow in: held OK over
+ * the channel list asks the server there and then.
  *
  * ## Why [consider] waits for the screen to be off
  *
@@ -54,8 +65,9 @@ import okhttp3.Request
  * reacting *faster* the next time the box restarts. A fixed quiet period measured from process start
  * — [SystemClock.elapsedRealtime], immune to the wall clock being wrong or stepped — means a crash
  * loop stays a crash loop instead of compounding into one that keeps re-fetching and re-installing
- * on every fresh attempt. [checkNow] skips it: a person standing there pressing something is not a
- * crash loop.
+ * on every fresh attempt. Only the silent install waits for it: downloading installs nothing, and
+ * [checkNow] and [installReady] both have a person standing there pressing something, which is not
+ * a crash loop.
  */
 class Updater(
     context: Context,
@@ -74,23 +86,38 @@ class Updater(
     private var busy = false
 
     /**
-     * Downloads [release] if it is newer than this build and not already on disk, and — only on a
-     * device owner, and only once the screen is off — installs it silently. On every other device
-     * this does nothing at all: there is no [checkNow] gesture yet to have asked for it, and safe to
-     * call on every poll regardless, since everything expensive short-circuits on its own.
+     * The release sitting on disk, checked and newer than this build, or null when there is none.
+     * Only ever set after the hash has matched, so the arrow never offers a half-downloaded file.
+     */
+    private val _ready = MutableStateFlow<ReadyRelease?>(null)
+    val ready: StateFlow<ReadyRelease?> = _ready.asStateFlow()
+
+    /**
+     * Downloads [release] if it is newer than this build and not already on disk, and announces it
+     * through [ready]. On a device owner, once the screen is off and the start-up grace has passed,
+     * it also installs it silently. Safe to call on every poll: a release already downloaded and
+     * announced costs nothing, and anything else expensive short-circuits on its own.
      */
     fun consider(release: ApkRelease?, screenOn: Boolean) {
-        if (release == null) return
-        if (release.version <= BuildConfig.VERSION_CODE) return
-        if (!isDeviceOwner()) return
-        if (SystemClock.elapsedRealtime() < readyAtElapsedRealtime) return
+        if (release == null || release.version <= BuildConfig.VERSION_CODE) {
+            forgetReady()
+            return
+        }
+        val owner = isDeviceOwner()
+        val silentAllowed = owner && !screenOn &&
+            SystemClock.elapsedRealtime() >= readyAtElapsedRealtime
+        // Already downloaded and announced, and nothing more this poll could do with it: not even
+        // worth hashing twenty megabytes again to find that out.
+        if (_ready.value?.version == release.version && !silentAllowed) return
         if (busy) return
         busy = true
 
         scope.launch(Dispatchers.IO) {
             try {
                 val file = downloadIfNeeded(release) ?: return@launch
-                if (screenOn) {
+                _ready.value = ReadyRelease(release.version, file)
+                if (!owner) return@launch
+                if (!silentAllowed) {
                     Log.i(TAG, "Release ${release.version} is ready; waiting for the screen to go off")
                     return@launch
                 }
@@ -99,6 +126,27 @@ class Updater(
                 busy = false
             }
         }
+    }
+
+    /**
+     * The yellow arrow was pressed: the file is already here, so this goes straight to Android's own
+     * install prompt. A file that has gone missing since — storage cleared underneath the app — is
+     * simply forgotten, and the next poll downloads it again.
+     */
+    fun installReady() {
+        val current = _ready.value ?: return
+        if (!current.file.exists()) {
+            _ready.value = null
+            return
+        }
+        installViaSystemUi(current.file, current.version)
+    }
+
+    /** Nothing newer to offer: no arrow, and no stale release left taking up room on the box. */
+    private fun forgetReady() {
+        if (busy) return
+        _ready.value = null
+        updatesDir.listFiles()?.forEach { it.delete() }
     }
 
     /** Whether this device can install silently — the same fact [WatchReporter.version] tells the panel. */
@@ -120,6 +168,7 @@ class Updater(
         scope.launch(Dispatchers.IO) {
             try {
                 val file = downloadIfNeeded(release) ?: return@launch
+                _ready.value = ReadyRelease(release.version, file)
                 installViaSystemUi(file, release.version)
             } finally {
                 busy = false
@@ -291,3 +340,6 @@ class Updater(
         const val STARTUP_GRACE_MS = 5 * 60 * 1000L
     }
 }
+
+/** A release on disk, verified, newer than this build, and one tap away from being installed. */
+data class ReadyRelease(val version: Int, val file: File)
