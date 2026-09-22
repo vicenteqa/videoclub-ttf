@@ -342,6 +342,9 @@ class MainViewModel(private val container: Container) : ViewModel() {
         val stack = _stack.value
         if (stack.size <= 1) return false
         _stack.value = stack.dropLast(1)
+        // Out of the player and still in the app: nothing plays here any more, and the panel is told
+        // now rather than when the supplier next samples the account, a minute later.
+        if (stack.last() is Screen.Play || stack.last() is Screen.Live) container.reporter.stopped()
         // Coming back from the player, the thing that changed is where the viewer got to. Whichever
         // screen is underneath is showing that, so it has to be re-read.
         when (_stack.value.last()) {
