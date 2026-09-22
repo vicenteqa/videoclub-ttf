@@ -143,7 +143,8 @@ class WatchReporterTest {
         who = null
         reporter.settledOn("La 1", WatchReporter.Kind.Channel)
 
-        assertThat(settle().map { it.optString("profile", "-") })
-            .containsExactly("Vicente", "Marta", "-").inOrder()
+        // Each request is its own coroutine, so they arrive in any order.
+        assertThat(settle().map { "${it.getString("canal")}:${it.optString("profile", "-")}" })
+            .containsExactly("Drácula:Vicente", "Drácula:Marta", "La 1:-")
     }
 }
