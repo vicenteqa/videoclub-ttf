@@ -130,4 +130,20 @@ class WatchReporterTest {
         assertThat(settle().filter { it.has("programa") }.map { it.getString("programa") })
             .containsExactly("Telediario 2")
     }
+
+    @Test
+    fun `the profile on travels with what is on`() {
+        var who: String? = "Vicente"
+        val reporter = WatchReporter(http, scope, nowMillis = { 1_000_000L }, viewer = { who }) {
+            ProviderConfig.empty().copy(reportUrl = "https://panel.example/informe", reportToken = "t")
+        }
+        reporter.settledOn("Drácula", WatchReporter.Kind.Film)
+        who = "Marta"
+        reporter.settledOn("Drácula", WatchReporter.Kind.Film)
+        who = null
+        reporter.settledOn("La 1", WatchReporter.Kind.Channel)
+
+        assertThat(settle().map { it.optString("profile", "-") })
+            .containsExactly("Vicente", "Marta", "-").inOrder()
+    }
 }

@@ -33,9 +33,10 @@ import org.json.JSONObject
  * for. It is sent again when the programme changes under a channel that stays on — see
  * [programmeChanged] — and never while somebody is still zapping past.
  *
- * This deliberately carries **no** viewer: which of the people in the household is watching is the
- * one thing here that would turn a debugging aid into surveillance of a specific person, and the
- * panel has no use for it.
+ * It also says whose profile is on, when the household has more than one: the panel shows it under
+ * what is playing. It used to leave the viewer out on purpose; the owner asked for it. It is the
+ * profile chosen in the app, not a person, and it only travels with what is on right now: the
+ * panel's history stays the household's.
  *
  * ## Why it is off unless switched on
  *
@@ -50,6 +51,8 @@ class WatchReporter(
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    /** Whose profile is on, or null when there is nobody to tell apart. Read on every report. */
+    private val viewer: () -> String? = { null },
     /** Read afresh on every report, like [VodClient]'s: a document adopted mid-session applies at once. */
     private val provider: () -> ProviderConfig,
 ) {
@@ -83,10 +86,11 @@ class WatchReporter(
         settledChannel = trimmed.takeIf { kind == Kind.Channel }
         val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
 
-        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}:${showing.orEmpty()}"
+        val who = viewer()
+        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}:${who.orEmpty()}:${showing.orEmpty()}"
         if (key == reported) return
         reported = key
-        send(config, trimmed, kind, showing, episode, provisional = false)
+        send(config, trimmed, kind, showing, episode, who, provisional = false)
     }
 
     /**
@@ -107,10 +111,12 @@ class WatchReporter(
         if (trimmed.isEmpty()) return
         val showing = programme?.trim()?.takeIf { it.isNotEmpty() }
         // The episode is part of what is new: the next episode of the same series is announced too.
-        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}"
+        // So is the viewer: the same film put on again under another profile is somebody else's.
+        val who = viewer()
+        val key = "${kind.wire}:$trimmed:${episode?.wire.orEmpty()}:${who.orEmpty()}"
         if (key == tuned || reported?.startsWith("$key:") == true) return
         tuned = key
-        send(config, trimmed, kind, showing, episode, provisional = true)
+        send(config, trimmed, kind, showing, episode, who, provisional = true)
     }
 
     /** Which episode of a series is on, for the panel's row. See [send]. */
@@ -124,6 +130,7 @@ class WatchReporter(
         kind: Kind,
         showing: String?,
         episode: EpisodeRef?,
+        profile: String?,
         provisional: Boolean
     ) {
         val body = JSONObject().apply {
@@ -142,6 +149,8 @@ class WatchReporter(
                 put("season", episode.season)
                 put("episode", episode.number)
             }
+            // Whose profile, when there is more than one to choose from. Absent otherwise.
+            if (profile != null) put("profile", profile.take(PROFILE_MAX))
             if (provisional) put("provisional", true)
         }.toString()
 
@@ -338,6 +347,9 @@ class WatchReporter(
 
         /** The panel keeps 160 characters; a guide's title is rarely a tenth of that. */
         const val PROGRAMME_MAX = 160
+
+        /** The panel keeps 40 characters of a profile's name. */
+        const val PROFILE_MAX = 40
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }

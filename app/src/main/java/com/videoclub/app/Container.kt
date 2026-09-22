@@ -132,8 +132,15 @@ class Container(context: Context) {
      *
      * What counts as "being watched" is not decided here: that is [ui.MainViewModel], the only thing
      * that knows how long something has been on and whether it is a film or an episode.
+     *
+     * The viewer is the profile chosen at the door, and only in a household with more than one: a
+     * household of one has nobody to tell apart, and a simple one has no profiles at all.
      */
-    val reporter = WatchReporter(http, scope) { settings.current }
+    val reporter = WatchReporter(
+        http,
+        scope,
+        viewer = { catalog.profile.name.takeIf { !settings.current.simple && catalog.profiles.value.size > 1 } },
+    ) { settings.current }
 
     /**
      * The household's "Continue watching", the same on every one of its devices.
