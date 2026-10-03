@@ -385,7 +385,12 @@ class MainViewModel(private val container: Container) : ViewModel() {
     /** The one thing on the menu. Closes it: the answer is the row redrawing behind it. */
     fun toggleMenuWatchlist() {
         val open = _menu.value ?: return
-        catalog.setInWatchlist(open.title.id, !open.inList)
+        // Pushed the moment it is decided, exactly as [toggleWatchlist] does: without it the
+        // decision stayed on this device until the app was next brought to the foreground.
+        viewModelScope.launch {
+            catalog.setInWatchlist(open.title.id, !open.inList).join()
+            container.progressSync.request()
+        }
         _menu.value = null
         // The detail page may be underneath and showing the other answer on its own button.
         _detail.update { if (it?.title?.id == open.title.id) it.copy(inWatchlist = !open.inList) else it }
